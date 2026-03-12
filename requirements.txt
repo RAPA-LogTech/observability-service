@@ -1,0 +1,6 @@
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+# OpenSearch 연결 시 주석 해제
+# opensearch-py>=2.6.0
+# boto3>=1.34.0          # AMP(Amazon Managed Prometheus) 쿼리용
+# requests-aws4auth>=1.3  # OpenSearch SigV4 인증용
