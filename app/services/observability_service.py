@@ -74,6 +74,80 @@ def _extract_nested(source: dict[str, Any], *paths: str) -> Any:
     return None
 
 
+def _normalize_unix_timestamp(value: Any) -> str | None:
+    """Normalize seconds/ms/us/ns epoch values into ISO8601 UTC string."""
+    raw: float
+    if isinstance(value, (int, float)):
+        raw = float(value)
+    elif isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            raw = float(stripped)
+        except ValueError:
+            return None
+    else:
+        return None
+
+    abs_raw = abs(raw)
+    if abs_raw >= 1e17:
+        seconds = raw / 1e9  # nanoseconds
+    elif abs_raw >= 1e14:
+        seconds = raw / 1e6  # microseconds
+    elif abs_raw >= 1e11:
+        seconds = raw / 1e3  # milliseconds
+    else:
+        seconds = raw  # seconds
+
+    try:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seconds))
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _extract_log_timestamp(source: dict[str, Any], doc: dict[str, Any]) -> str:
+    candidates = [
+        _extract_nested(
+            source,
+            "time",
+            "@timestamp",
+            "timestamp",
+            "observedTimestamp",
+            "event.time",
+            "event.created",
+            "log.time",
+            "timeUnixNano",
+            "time_unix_nano",
+            "observedTimeUnixNano",
+        )
+    ]
+
+    sort_values = doc.get("sort") if isinstance(doc, dict) else None
+    if isinstance(sort_values, list) and sort_values:
+        candidates.append(sort_values[0])
+
+    for candidate in candidates:
+        if candidate is None:
+            continue
+
+        if isinstance(candidate, str):
+            stripped = candidate.strip()
+            if not stripped:
+                continue
+
+            normalized = _normalize_unix_timestamp(stripped)
+            if normalized:
+                return normalized
+            return stripped
+
+        normalized = _normalize_unix_timestamp(candidate)
+        if normalized:
+            return normalized
+
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
 def _opensearch_search(settings: Settings, index: str, body: dict[str, Any]) -> dict[str, Any]:
     if not settings.opensearch_url:
         return {"__error__": "OPENSEARCH_URL is not configured", "__status__": 503}
@@ -290,10 +364,7 @@ def list_logs(
         logs.append(
             {
                 "id": str(doc.get("_id") or _extract_nested(source, "id") or f"log-{len(logs)+1}"),
-                "timestamp": str(
-                    _extract_nested(source, "time", "@timestamp", "timestamp", "observedTimestamp")
-                    or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                ),
+                "timestamp": _extract_log_timestamp(source, doc),
                 "service": str(
                     _extract_nested(
                         source,
