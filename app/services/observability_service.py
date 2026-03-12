@@ -107,21 +107,23 @@ def _normalize_unix_timestamp(value: Any) -> str | None:
 
 
 def _extract_log_timestamp(source: dict[str, Any], doc: dict[str, Any]) -> str:
-    candidates = [
-        _extract_nested(
-            source,
-            "time",
-            "@timestamp",
-            "timestamp",
-            "observedTimestamp",
-            "event.time",
-            "event.created",
-            "log.time",
-            "timeUnixNano",
-            "time_unix_nano",
-            "observedTimeUnixNano",
-        )
+    timestamp_paths = [
+        "time",
+        "@timestamp",
+        "timestamp",
+        "observedTimestamp",
+        "event.time",
+        "event.created",
+        "log.time",
+        "timeUnixNano",
+        "time_unix_nano",
+        "observedTimeUnixNano",
     ]
+    candidates: list[Any] = []
+    for path in timestamp_paths:
+        value = _extract_nested(source, path)
+        if value is not None:
+            candidates.append(value)
 
     sort_values = doc.get("sort") if isinstance(doc, dict) else None
     if isinstance(sort_values, list) and sort_values:
@@ -139,7 +141,10 @@ def _extract_log_timestamp(source: dict[str, Any], doc: dict[str, Any]) -> str:
             normalized = _normalize_unix_timestamp(stripped)
             if normalized:
                 return normalized
-            return stripped
+            # ISO8601/Zulu-like string values should pass through as-is.
+            if "T" in stripped or stripped.endswith("Z"):
+                return stripped
+            continue
 
         normalized = _normalize_unix_timestamp(candidate)
         if normalized:
