@@ -51,6 +51,11 @@ coverage.xml
 .pytest_cache/
 cover/
 
+# Environment files
+.env
+.env.*
+!.env.example
+
 # Translations
 *.mo
 *.pot

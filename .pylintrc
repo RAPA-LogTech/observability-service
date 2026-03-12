@@ -1,0 +1,46 @@
+[MASTER]
+# Pylint가 분석할 경로
+ignore=venv,.venv,__pycache__,build,dist
+init-hook='import os, sys; sys.path.insert(0, os.getcwd())'
+source-roots=.
+
+[MESSAGES CONTROL]
+# 팀 코드 스타일/프레임워크 특성상 과한 경고는 비활성화
+# 필요 시 점진적으로 다시 활성화하세요.
+disable=
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    too-few-public-methods,
+    duplicate-code,
+    fixme,
+    invalid-name
+
+[FORMAT]
+max-line-length=100
+indent-string='    '
+
+[DESIGN]
+max-args=8
+max-locals=25
+max-branches=15
+max-statements=60
+
+[TYPECHECK]
+# FastAPI/동적 import 환경에서 오탐을 줄이기 위한 설정
+generated-members=
+    app,
+    router
+
+[VARIABLES]
+# 언더스코어 prefixed 변수 허용
+dummy-variables-rgx=^(_|dummy|unused|_unused)$
+
+[REPORTS]
+score=yes
+
+[SIMILARITIES]
+min-similarity-lines=6
+
+[LOGGING]
+logging-format-style=old
