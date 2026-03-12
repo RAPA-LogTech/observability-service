@@ -1,9 +1,0 @@
-repos:
-  - repo: local
-    hooks:
-      - id: pylint
-        name: pylint (observability-service)
-        entry: pylint app main.py
-        language: system
-        pass_filenames: false
-        types: [python]
