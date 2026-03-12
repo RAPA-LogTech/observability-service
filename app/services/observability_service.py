@@ -58,6 +58,10 @@ def _opensearch_headers(settings: Settings) -> dict[str, str]:
 
 def _extract_nested(source: dict[str, Any], *paths: str) -> Any:
     for path in paths:
+        # Support flattened keys containing dots (e.g. "resource.attributes.service@name").
+        if path in source and source[path] is not None:
+            return source[path]
+
         current: Any = source
         ok = True
         for key in path.split("."):
@@ -213,16 +217,42 @@ def list_logs(
 
     filters: list[dict[str, Any]] = []
     if service:
-        filters.append({"term": {"service.keyword": service}})
+        filters.append(
+            {
+                "bool": {
+                    "should": [
+                        {"term": {"service.keyword": service}},
+                        {"term": {"serviceName.keyword": service}},
+                        {"term": {"resource.attributes.service@name.keyword": service}},
+                    ],
+                    "minimum_should_match": 1,
+                }
+            }
+        )
     if level:
-        filters.append({"term": {"level.keyword": level.upper()}})
+        filters.append(
+            {
+                "bool": {
+                    "should": [
+                        {"term": {"level.keyword": level.upper()}},
+                        {"term": {"severityText.keyword": level.upper()}},
+                    ],
+                    "minimum_should_match": 1,
+                }
+            }
+        )
     if env:
         filters.append({"term": {"env.keyword": env}})
 
     body: dict[str, Any] = {
         "from": max(0, offset),
         "size": max(1, min(limit, 1000)),
-        "sort": [{"@timestamp": {"order": "desc", "unmapped_type": "date"}}],
+        "sort": [
+            {"time": {"order": "desc", "unmapped_type": "date"}},
+            {"@timestamp": {"order": "desc", "unmapped_type": "date"}},
+            {"timestamp": {"order": "desc", "unmapped_type": "date"}},
+            {"observedTimestamp": {"order": "desc", "unmapped_type": "date"}},
+        ],
         "query": {"bool": {"filter": filters}},
     }
 
@@ -261,21 +291,32 @@ def list_logs(
             {
                 "id": str(doc.get("_id") or _extract_nested(source, "id") or f"log-{len(logs)+1}"),
                 "timestamp": str(
-                    _extract_nested(source, "@timestamp", "timestamp")
+                    _extract_nested(source, "time", "@timestamp", "timestamp", "observedTimestamp")
                     or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                 ),
                 "service": str(
                     _extract_nested(
                         source,
                         "serviceName",
+                        "service",
                         "resource.service.name",
+                        "resource.attributes.service@name",
                         "kubernetes.labels.app",
                     )
                     or "unknown",
                 ),
                 "env": _safe_env(str(_extract_nested(source, "env", "environment") or "prod")),
                 "level": _safe_level(
-                    str(_extract_nested(source, "level", "severity", "severity_text") or "INFO")
+                    str(
+                        _extract_nested(
+                            source,
+                            "level",
+                            "severity",
+                            "severity_text",
+                            "severityText",
+                        )
+                        or "INFO"
+                    )
                 ),
                 "message": str(message or ""),
                 "metadata": metadata,

@@ -54,8 +54,36 @@ class _StreamState:
             self.started = True
 
     def _bootstrap_state(self) -> None:
-        # No static mock bootstrap: runtime reads from current data source.
-        return
+        """서비스 시작 시 OpenSearch의 기존 데이터를 history에 미리 적재.
+        이후 _run 루프는 _seen_ids에 없는 신규 항목만 스트리밍한다."""
+        if self.kind == "logs":
+            result = list_logs(limit=self.max_history, offset=0)
+            items = result.get("logs", []) if isinstance(result, dict) else []
+            # OpenSearch는 최신순 반환 → 가장 오래된 것부터 history에 넣어 cursor 단조증가 유지
+            for item in reversed(items):
+                if not isinstance(item, dict):
+                    continue
+                item_id = str(item.get("id") or "")
+                if not item_id or item_id in self._seen_ids:
+                    continue
+                self._seen_ids.add(item_id)
+                self.cursor += 1
+                self.history.append({"ts": _now_ms(), "log": item, "cursor": self.cursor})
+
+        elif self.kind == "traces":
+            result = list_traces(limit=self.max_history, offset=0)
+            items = result.get("traces", []) if isinstance(result, dict) else []
+            for item in reversed(items):
+                if not isinstance(item, dict):
+                    continue
+                item_id = str(item.get("id") or "")
+                if not item_id or item_id in self._seen_ids:
+                    continue
+                self._seen_ids.add(item_id)
+                self.cursor += 1
+                self.history.append({"ts": _now_ms(), "trace": item, "cursor": self.cursor})
+
+        self.sequence = self.cursor
 
     async def _run(self) -> None:
         while True:
