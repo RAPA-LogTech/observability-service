@@ -267,7 +267,7 @@ def list_logs(
                 "service": str(
                     _extract_nested(
                         source,
-                        "service",
+                        "serviceName",
                         "resource.service.name",
                         "kubernetes.labels.app",
                     )
