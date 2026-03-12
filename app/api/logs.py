@@ -37,7 +37,7 @@ def get_logs(
 @router.get("/logs/backlog")
 async def get_logs_backlog(
     cursor: int = Query(default=0, ge=0),
-    limit: int = Query(default=200, ge=1, le=500),
+    limit: int = Query(default=500, ge=1, le=1000),
 ) -> dict:
     await ensure_stream_started("logs")
     return get_stream_backlog("logs", cursor, limit)

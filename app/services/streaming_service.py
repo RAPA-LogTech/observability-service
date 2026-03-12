@@ -150,7 +150,7 @@ class _StreamState:
         return self._next_trace_payload()
 
     def _next_log_payload(self) -> dict[str, Any] | None:
-        result = list_logs(limit=200, offset=0)
+        result = list_logs(limit=1000, offset=0)
         logs = result.get("logs", []) if isinstance(result, dict) else []
         if not isinstance(logs, list):
             return None
@@ -223,7 +223,7 @@ class _StreamState:
         return None
 
 
-_LOG_STATE = _StreamState("logs", max_history=1000, min_delay_seconds=2.2, max_delay_seconds=6.8)
+_LOG_STATE = _StreamState("logs", max_history=5000, min_delay_seconds=2.2, max_delay_seconds=6.8)
 _METRIC_STATE = _StreamState(
     "metrics",
     max_history=400,
