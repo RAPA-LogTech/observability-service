@@ -24,7 +24,13 @@ def get_traces(
     limit: int = Query(default=50, le=500),
     offset: int = 0,
 ) -> dict:
-    return list_traces(service=service, status=status, limit=limit, offset=offset)
+    result = list_traces(service=service, status=status, limit=limit, offset=offset)
+    if "__error__" in result:
+        raise HTTPException(
+            status_code=int(result.get("__status__", 502)),
+            detail=str(result.get("__error__")),
+        )
+    return result
 
 
 @router.get("/traces/{trace_id}")

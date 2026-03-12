@@ -1,7 +1,7 @@
 import asyncio
 import time
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from ..services.observability_service import list_logs
@@ -25,7 +25,13 @@ def get_logs(
     limit: int = Query(default=100, le=1000),
     offset: int = 0,
 ) -> dict:
-    return list_logs(service=service, level=level, env=env, limit=limit, offset=offset)
+    result = list_logs(service=service, level=level, env=env, limit=limit, offset=offset)
+    if "__error__" in result:
+        raise HTTPException(
+            status_code=int(result.get("__status__", 502)),
+            detail=str(result.get("__error__")),
+        )
+    return result
 
 
 @router.get("/logs/backlog")

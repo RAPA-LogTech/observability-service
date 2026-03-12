@@ -1,13 +1,10 @@
 import asyncio
 import json
-import random
 import time
 from collections import deque
-from contextlib import suppress
-from copy import deepcopy
 from typing import Any, Literal
 
-from ..data.mock_data import build_mock_logs, build_mock_metrics, build_mock_traces
+from .observability_service import list_logs, list_metrics, list_traces
 
 StreamKind = Literal["logs", "metrics", "traces"]
 
@@ -42,9 +39,8 @@ class _StreamState:
         self._task: asyncio.Task[None] | None = None
         self._start_lock = asyncio.Lock()
 
-        self._log_templates: list[dict[str, Any]] = []
-        self._trace_templates: list[dict[str, Any]] = []
-        self._metric_state: list[dict[str, Any]] = []
+        self._seen_ids: set[str] = set()
+        self._last_metric_points: dict[str, tuple[int, float]] = {}
 
     async def ensure_started(self) -> None:
         if self.started:
@@ -58,28 +54,15 @@ class _StreamState:
             self.started = True
 
     def _bootstrap_state(self) -> None:
-        if self.kind == "logs":
-            self._log_templates = build_mock_logs()
-            return
-
-        if self.kind == "traces":
-            self._trace_templates = build_mock_traces()
-            return
-
-        metrics = build_mock_metrics()
-        self._metric_state = [
-            {
-                "id": item["id"],
-                "unit": item.get("unit", ""),
-                "value": item.get("points", [{}])[-1].get("value", 0),
-            }
-            for item in metrics
-        ]
+        # No static mock bootstrap: runtime reads from current data source.
+        return
 
     async def _run(self) -> None:
         while True:
-            await asyncio.sleep(random.uniform(self.min_delay_seconds, self.max_delay_seconds))
+            await asyncio.sleep(self.min_delay_seconds)
             payload = self._next_payload()
+            if payload is None:
+                continue
 
             self.cursor += 1
             payload["cursor"] = self.cursor
@@ -88,8 +71,10 @@ class _StreamState:
             stale: list[asyncio.Queue[dict[str, Any]]] = []
             for queue in self.subscribers:
                 if queue.full():
-                    with suppress(asyncio.QueueEmpty):
+                    try:
                         queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
 
                 try:
                     queue.put_nowait(payload)
@@ -127,7 +112,7 @@ class _StreamState:
             return 0
         return int(self.history[-1]["cursor"])
 
-    def _next_payload(self) -> dict[str, Any]:
+    def _next_payload(self) -> dict[str, Any] | None:
         self.sequence += 1
 
         if self.kind == "logs":
@@ -136,98 +121,78 @@ class _StreamState:
             return self._next_metric_payload()
         return self._next_trace_payload()
 
-    def _next_log_payload(self) -> dict[str, Any]:
-        if not self._log_templates:
-            self._log_templates = build_mock_logs()
+    def _next_log_payload(self) -> dict[str, Any] | None:
+        result = list_logs(limit=200, offset=0)
+        logs = result.get("logs", []) if isinstance(result, dict) else []
+        if not isinstance(logs, list):
+            return None
 
-        template = deepcopy(random.choice(self._log_templates))
-        now_ms = _now_ms()
-        level = random.choices(["INFO", "WARN", "ERROR", "DEBUG"], weights=[55, 25, 12, 8], k=1)[0]
+        for item in logs:
+            if not isinstance(item, dict):
+                continue
+            log_id = str(item.get("id") or "")
+            if not log_id or log_id in self._seen_ids:
+                continue
 
-        metadata = template.get("metadata") or {}
-        metadata["requestId"] = f"req-{self.sequence:08d}"
-        metadata["traceId"] = f"trace-live-{self.sequence:06d}"
-        metadata["spanId"] = f"span-live-{self.sequence:06d}"
+            self._seen_ids.add(log_id)
+            if len(self._seen_ids) > 4000:
+                self._seen_ids = set(list(self._seen_ids)[-2500:])
+            return {"ts": _now_ms(), "log": item}
 
-        template["id"] = f"log-live-{now_ms}-{self.sequence}"
-        template["timestamp"] = _iso_now()
-        template["level"] = level
-        template["metadata"] = metadata
+        return None
 
-        return {"ts": now_ms, "log": template}
+    def _next_metric_payload(self) -> dict[str, Any] | None:
+        metrics = list_metrics()
+        if not isinstance(metrics, list):
+            return None
 
-    def _next_metric_payload(self) -> dict[str, Any]:
         now_ms = _now_ms()
         points: list[dict[str, Any]] = []
 
-        for item in self._metric_state:
-            unit = str(item.get("unit", ""))
-            value = float(item.get("value", 0))
+        for series in metrics:
+            if not isinstance(series, dict):
+                continue
+            series_id = str(series.get("id") or "")
+            series_points = series.get("points", [])
+            if not series_id or not isinstance(series_points, list) or not series_points:
+                continue
 
-            if unit == "%":
-                delta = (random.random() - 0.5) * 1.2
-                next_value = max(0, min(100, value + delta))
-                rounded = round(next_value, 3)
-            elif unit == "ms":
-                delta = (random.random() - 0.5) * 24
-                rounded = round(max(1, value + delta), 0)
-            else:
-                delta = (random.random() - 0.5) * 40
-                rounded = round(max(0, value + delta), 2)
+            last_point = series_points[-1]
+            if not isinstance(last_point, dict):
+                continue
 
-            item["value"] = rounded
-            points.append({"id": item["id"], "ts": now_ms, "value": rounded})
+            ts = int(last_point.get("ts") or now_ms)
+            value = float(last_point.get("value") or 0)
+            prev = self._last_metric_points.get(series_id)
+            if prev and prev[0] == ts and prev[1] == value:
+                continue
 
+            self._last_metric_points[series_id] = (ts, value)
+            points.append({"id": series_id, "ts": ts, "value": value})
+
+        if not points:
+            return None
         return {"ts": now_ms, "points": points}
 
-    def _next_trace_payload(self) -> dict[str, Any]:
-        if not self._trace_templates:
-            self._trace_templates = build_mock_traces()
+    def _next_trace_payload(self) -> dict[str, Any] | None:
+        result = list_traces(limit=200, offset=0)
+        traces = result.get("traces", []) if isinstance(result, dict) else []
+        if not isinstance(traces, list):
+            return None
 
-        template = deepcopy(random.choice(self._trace_templates))
-        now_ms = _now_ms()
-        status = random.choices(["ok", "slow", "error"], weights=[66, 22, 12], k=1)[0]
+        for item in traces:
+            if not isinstance(item, dict):
+                continue
+            trace_id = str(item.get("id") or "")
+            if not trace_id or trace_id in self._seen_ids:
+                continue
 
-        base_duration = int(template.get("duration", 100))
-        multiplier = 1.0
-        if status == "slow":
-            multiplier = 1.35
-        if status == "error":
-            multiplier = 1.6
-        duration = max(20, int(base_duration * multiplier * random.uniform(0.85, 1.15)))
+            self._seen_ids.add(trace_id)
+            if len(self._seen_ids) > 4000:
+                self._seen_ids = set(list(self._seen_ids)[-2500:])
+            return {"ts": _now_ms(), "trace": item}
 
-        trace_id = f"trace-live-{now_ms}-{self.sequence}"
-        start_time = now_ms - duration - random.randint(0, 900)
-
-        spans = template.get("spans", [])
-        id_map: dict[str, str] = {}
-        for index, span in enumerate(spans, start=1):
-            old_id = str(span.get("id", f"span-{index}"))
-            id_map[old_id] = f"{trace_id}-span-{index}"
-
-        for span in spans:
-            old_parent = span.get("parentSpanId")
-            old_id = str(span.get("id"))
-            span["id"] = id_map.get(old_id, f"{trace_id}-span-x")
-            span["traceId"] = trace_id
-            if old_parent:
-                span["parentSpanId"] = id_map.get(str(old_parent))
-
-            span_duration = int(span.get("duration", 10))
-            span_multiplier = 1.0 if status == "ok" else 1.22 if status == "slow" else 1.4
-            span["duration"] = max(
-                2,
-                int(span_duration * span_multiplier * random.uniform(0.8, 1.2)),
-            )
-            span["startTime"] = start_time + random.randint(0, max(1, duration - 1))
-
-        template["id"] = trace_id
-        template["startTime"] = start_time
-        template["duration"] = duration
-        template["status"] = status
-        template["status_code"] = 200 if status == "ok" else 429 if status == "slow" else 500
-
-        return {"ts": now_ms, "trace": template}
+        return None
 
 
 _LOG_STATE = _StreamState("logs", max_history=1000, min_delay_seconds=2.2, max_delay_seconds=6.8)

@@ -1,7 +1,7 @@
 import asyncio
 import time
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from ..services.observability_service import list_metrics
@@ -19,7 +19,13 @@ router = APIRouter(prefix="/v1", tags=["metrics"])
 
 @router.get("/metrics")
 def get_metrics(service: str | None = None) -> list[dict]:
-    return list_metrics(service=service)
+    result = list_metrics(service=service)
+    if isinstance(result, dict) and "__error__" in result:
+        raise HTTPException(
+            status_code=int(result.get("__status__", 502)),
+            detail=str(result.get("__error__")),
+        )
+    return result
 
 
 @router.get("/metrics/backlog")
