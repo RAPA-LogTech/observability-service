@@ -185,8 +185,17 @@ def _opensearch_search(settings: Settings, index: str, body: dict[str, Any]) -> 
     headers = _opensearch_headers(settings)
     auth = _opensearch_auth(settings)
     if auth:
+        logger.info(
+            "OpenSearch auth: username=%s password=%s",
+            auth[0],
+            auth[1],
+        )
         token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode("utf-8")).decode("ascii")
         headers["Authorization"] = f"Basic {token}"
+    elif settings.opensearch_api_key:
+        logger.info("OpenSearch auth: api_key is set")
+    else:
+        logger.info("OpenSearch auth: no credentials configured")
 
     request = Request(
         url=url,
