@@ -9,7 +9,7 @@ from .api.metrics import router as metrics_router
 from .api.traces import router as traces_router
 from .core.config import get_settings
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 
 def create_app() -> FastAPI:

@@ -50,7 +50,7 @@ OPENSEARCH_TRACES_INDEX=traces-*
 OPENSEARCH_TIMEOUT_SECONDS=8
 OPENSEARCH_VERIFY_TLS=true
 OPENSEARCH_USERNAME=admin
-OPENSEARCH_PASSWORD=SDdfgDG1234
+OPENSEARCH_PASSWORD=SDdfgDG1234!
 
 AMP_ENDPOINT=https://aps-workspaces.ap-northeast-2.amazonaws.com/workspaces/ws-aafbc09f-d82d-4e8b-bb9c-46def73576e2/api/v1/query
 AMP_TIMEOUT_SECONDS=8
@@ -180,7 +180,7 @@ ps aux | grep uvicorn
 자격증명 직접 테스트:
 
 ```bash
-curl -i -s --max-time 8 -u 'admin:SDdfgDG1234' \
+curl -i -s --max-time 8 -u 'admin:SDdfgDG1234!' \
   'https://vpc-logtech-dev-an3ndw6k4k7nzlvnrounfxfn3q.ap-northeast-2.es.amazonaws.com'
 ```
 

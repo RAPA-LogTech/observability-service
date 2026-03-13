@@ -12,7 +12,8 @@ from urllib.request import Request, urlopen
 
 from ..core.config import Settings, get_settings
 
-logger = logging.getLogger(__name__)
+# Use uvicorn's logger so info logs are visible in foreground server output.
+logger = logging.getLogger("uvicorn.error")
 
 
 def _normalize_amp_endpoint_for_query(endpoint: str) -> str:
