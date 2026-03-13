@@ -12,6 +12,25 @@ from urllib.request import Request, urlopen
 from ..core.config import Settings, get_settings
 
 
+def _normalize_amp_endpoint_for_query(endpoint: str) -> str:
+    base = endpoint.strip().rstrip("/")
+    if not base:
+        return base
+
+    # Accept common AMP endpoint forms and normalize to workspace base URL.
+    # e.g. .../workspaces/<id>/api/v1/remote_write -> .../workspaces/<id>
+    suffixes = (
+        "/api/v1/remote_write",
+        "/api/v1/query_range",
+        "/api/v1/query",
+        "/api/v1",
+    )
+    for suffix in suffixes:
+        if base.endswith(suffix):
+            return base[: -len(suffix)]
+    return base
+
+
 def _is_real_mode(settings: Settings) -> bool:
     mode = settings.data_source_mode.strip().lower()
     if mode == "real_only":
@@ -215,11 +234,8 @@ def _amp_query_range(
     if not settings.amp_endpoint:
         return [{"__error__": "AMP endpoint is not configured", "__status__": 503}]
 
-    base = settings.amp_endpoint.rstrip("/")
-    if base.endswith("/api/v1"):
-        url = f"{base}/query_range"
-    else:
-        url = f"{base}/api/v1/query_range"
+    workspace_base = _normalize_amp_endpoint_for_query(settings.amp_endpoint)
+    url = f"{workspace_base}/api/v1/query_range"
 
     params = {
         "query": query,

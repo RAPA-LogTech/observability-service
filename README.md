@@ -104,6 +104,9 @@ OPENSEARCH_LOGS_INDEX=logs-*
 OPENSEARCH_TRACES_INDEX=traces-*
 OPENSEARCH_TIMEOUT_SECONDS=8
 OPENSEARCH_VERIFY_TLS=true
+AMP_ENDPOINT=https://aps-workspaces.ap-northeast-2.amazonaws.com/workspaces/ws-438cd95b-8a3a-4106-b8e9-9b7c8af4f5f8/api/v1/remote_write
+AMP_TIMEOUT_SECONDS=8
+AMP_STEP_SECONDS=60
 
 OPENSEARCH_USERNAME=<your-username>
 OPENSEARCH_PASSWORD=<your-password>
@@ -192,3 +195,29 @@ pip install -r requirements.txt
 - Verify `OPENSEARCH_URL`, credentials/API key, TLS option
 - Confirm network access/security group/VPC routing
 - Test with `curl` directly to OpenSearch endpoint
+
+### Apply `.env` changes to running venv server
+
+When `.env` is updated, restart the running process so new environment values are loaded.
+
+If you run with uvicorn directly:
+
+```bash
+# In project root
+cd observability-service
+source .venv/bin/activate
+
+# Stop existing server with Ctrl+C, then start again
+uvicorn main:app --reload --host 0.0.0.0 --port 8081
+```
+
+If you run as a systemd service on EC2:
+
+```bash
+cd /opt/observability-service
+source .venv/bin/activate
+sudo systemctl restart observability-service
+sudo systemctl status observability-service
+```
+
+Note: this project now loads `.env` using an absolute project path, so environment values are applied even if server is started from a different working directory.
