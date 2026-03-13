@@ -50,7 +50,7 @@ OPENSEARCH_TRACES_INDEX=traces-*
 OPENSEARCH_TIMEOUT_SECONDS=8
 OPENSEARCH_VERIFY_TLS=true
 OPENSEARCH_USERNAME=admin
-OPENSEARCH_PASSWORD=Fkvk1234!
+OPENSEARCH_PASSWORD=SDdfgDG1234
 
 AMP_ENDPOINT=https://aps-workspaces.ap-northeast-2.amazonaws.com/workspaces/ws-aafbc09f-d82d-4e8b-bb9c-46def73576e2/api/v1/query
 AMP_TIMEOUT_SECONDS=8
@@ -64,15 +64,12 @@ EOF
 cat ~/observability-service/.env
 ```
 
-### 5. 서버 백그라운드 실행
+### 5. 서버 포어그라운드 실행
 
 ```bash
-mkdir -p ~/observability-service/logs
 cd ~/observability-service
 source .venv/bin/activate
-nohup uvicorn main:app --host 0.0.0.0 --port 8081 > ~/observability-service/logs/app.log 2>&1 &
-echo $! > ~/observability-service/logs/app.pid
-echo "Started. PID: $(cat ~/observability-service/logs/app.pid)"
+uvicorn main:app --host 0.0.0.0 --port 8081
 ```
 
 ### 6. 동작 확인
@@ -84,8 +81,7 @@ curl -s http://localhost:8081/health
 # 로그 조회 테스트
 curl -s "http://localhost:8081/v1/logs?limit=3"
 
-# 실시간 로그 확인
-tail -f ~/observability-service/logs/app.log
+# 실시간 로그는 위 uvicorn 실행 터미널에서 바로 출력됨
 ```
 
 ---
@@ -101,11 +97,9 @@ source .venv/bin/activate
 pip install -r requirements.txt   # requirements 변경 시만 필요
 
 # 서버 재시작
-kill $(cat logs/app.pid) 2>/dev/null || pkill -f "uvicorn main:app"
+pkill -f "uvicorn main:app" || true
 sleep 1
-nohup uvicorn main:app --host 0.0.0.0 --port 8081 > logs/app.log 2>&1 &
-echo $! > logs/app.pid
-echo "Restarted. PID: $(cat logs/app.pid)"
+uvicorn main:app --host 0.0.0.0 --port 8081
 ```
 
 ---
@@ -171,12 +165,14 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8081
 
 ## 트러블슈팅
 
-### 서버 PID 확인 / 수동 종료
+### 포어그라운드 실행 중 종료
 
 ```bash
-cat ~/observability-service/logs/app.pid      # 저장된 PID 확인
-ps aux | grep uvicorn           # 실행 중인 프로세스 확인
-pkill -f "uvicorn main:app"     # 강제 종료
+# 현재 터미널에서 실행 중이면 Ctrl+C
+
+# 다른 터미널에서 떠 있는 uvicorn 정리
+pkill -f "uvicorn main:app"
+ps aux | grep uvicorn
 ```
 
 ### OpenSearch 401 오류
@@ -184,18 +180,17 @@ pkill -f "uvicorn main:app"     # 강제 종료
 자격증명 직접 테스트:
 
 ```bash
-curl -i -s --max-time 8 -u 'admin:Fkvk1234!' \
+curl -i -s --max-time 8 -u 'admin:SDdfgDG1234' \
   'https://vpc-logtech-dev-an3ndw6k4k7nzlvnrounfxfn3q.ap-northeast-2.es.amazonaws.com'
 ```
 
 200이 뜨면 서버가 `.env`를 읽지 못한 것 → 서버 재시작 필요:
 
 ```bash
-kill $(cat ~/observability-service/logs/app.pid) 2>/dev/null || pkill -f "uvicorn main:app"
+pkill -f "uvicorn main:app" || true
 sleep 1
 cd ~/observability-service && source .venv/bin/activate
-nohup uvicorn main:app --host 0.0.0.0 --port 8081 > logs/app.log 2>&1 &
-echo $! > logs/app.pid
+uvicorn main:app --host 0.0.0.0 --port 8081
 ```
 
 ### `ModuleNotFoundError`
