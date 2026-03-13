@@ -19,8 +19,8 @@ sudo apt-get install -y python3.11 python3.11-venv python3-pip git
 
 ```bash
 cd ~
-git clone https://github.com/RAPA-LogTech/observability-service.git backend
-cd ~/backend
+git clone https://github.com/RAPA-LogTech/observability-service.git
+cd ~/observability-service
 ```
 
 ### 3. 가상환경 생성 및 의존성 설치
@@ -37,7 +37,7 @@ pip install -r requirements.txt
 아래 명령어를 그대로 복사해서 실행하면 `.env`가 생성됩니다:
 
 ```bash
-cat > ~/backend/.env << 'EOF'
+cat > ~/observability-service/.env << 'EOF'
 SERVICE_NAME=observability-service
 ENVIRONMENT=production
 DATA_SOURCE_MODE=real_only
@@ -61,18 +61,18 @@ EOF
 생성 확인:
 
 ```bash
-cat ~/backend/.env
+cat ~/observability-service/.env
 ```
 
 ### 5. 서버 백그라운드 실행
 
 ```bash
-mkdir -p ~/backend/logs
-cd ~/backend
+mkdir -p ~/observability-service/logs
+cd ~/observability-service
 source .venv/bin/activate
-nohup uvicorn main:app --host 0.0.0.0 --port 8081 > ~/backend/logs/app.log 2>&1 &
-echo $! > ~/backend/logs/app.pid
-echo "Started. PID: $(cat ~/backend/logs/app.pid)"
+nohup uvicorn main:app --host 0.0.0.0 --port 8081 > ~/observability-service/logs/app.log 2>&1 &
+echo $! > ~/observability-service/logs/app.pid
+echo "Started. PID: $(cat ~/observability-service/logs/app.pid)"
 ```
 
 ### 6. 동작 확인
@@ -85,7 +85,7 @@ curl -s http://localhost:8081/health
 curl -s "http://localhost:8081/v1/logs?limit=3"
 
 # 실시간 로그 확인
-tail -f ~/backend/logs/app.log
+tail -f ~/observability-service/logs/app.log
 ```
 
 ---
@@ -95,7 +95,7 @@ tail -f ~/backend/logs/app.log
 코드가 변경됐을 때 EC2에서 반영하는 방법:
 
 ```bash
-cd ~/backend
+cd ~/observability-service
 git pull
 source .venv/bin/activate
 pip install -r requirements.txt   # requirements 변경 시만 필요
@@ -174,7 +174,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8081
 ### 서버 PID 확인 / 수동 종료
 
 ```bash
-cat ~/backend/logs/app.pid      # 저장된 PID 확인
+cat ~/observability-service/logs/app.pid      # 저장된 PID 확인
 ps aux | grep uvicorn           # 실행 중인 프로세스 확인
 pkill -f "uvicorn main:app"     # 강제 종료
 ```
@@ -191,9 +191,9 @@ curl -i -s --max-time 8 -u 'admin:Fkvk1234!' \
 200이 뜨면 서버가 `.env`를 읽지 못한 것 → 서버 재시작 필요:
 
 ```bash
-kill $(cat ~/backend/logs/app.pid) 2>/dev/null || pkill -f "uvicorn main:app"
+kill $(cat ~/observability-service/logs/app.pid) 2>/dev/null || pkill -f "uvicorn main:app"
 sleep 1
-cd ~/backend && source .venv/bin/activate
+cd ~/observability-service && source .venv/bin/activate
 nohup uvicorn main:app --host 0.0.0.0 --port 8081 > logs/app.log 2>&1 &
 echo $! > logs/app.pid
 ```
@@ -203,7 +203,7 @@ echo $! > logs/app.pid
 venv가 활성화되지 않은 경우:
 
 ```bash
-source ~/backend/.venv/bin/activate
+source ~/observability-service/.venv/bin/activate
 pip install -r requirements.txt
 ```
 
