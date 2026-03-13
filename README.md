@@ -99,7 +99,7 @@ DATA_SOURCE_MODE=real_only
 
 ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 
-OPENSEARCH_URL=https://<your-opensearch-endpoint>
+OPENSEARCH_URL=https://vpc-log-platform-dev-berciu3s6yeeq6getvwavbebz4.ap-northeast-2.es.amazonaws.com
 OPENSEARCH_LOGS_INDEX=logs-*
 OPENSEARCH_TRACES_INDEX=traces-*
 OPENSEARCH_TIMEOUT_SECONDS=8
@@ -114,20 +114,20 @@ OPENSEARCH_PASSWORD=<your-password>
 ### 5. Run the server
 
 ```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8001
+uvicorn main:app --reload --host 0.0.0.0 --port 8081
 ```
 
 Server URL:
 
-- `http://localhost:8001`
+- `http://localhost:8081`
 
 ### 6. Verify API is working
 
 ```bash
-curl -s http://localhost:8001/health
-curl -s "http://localhost:8001/v1/logs?limit=3"
-curl -s "http://localhost:8001/v1/metrics?minutes=15"
-curl -s "http://localhost:8001/v1/traces?limit=3"
+curl -s http://localhost:8081/health
+curl -s "http://localhost:8081/v1/logs?limit=3"
+curl -s "http://localhost:8081/v1/metrics?minutes=15"
+curl -s "http://localhost:8081/v1/traces?limit=3"
 ```
 
 ### 7. Stop / deactivate
