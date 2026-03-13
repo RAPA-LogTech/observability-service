@@ -17,6 +17,16 @@ python3.11 --version
 git --version
 ```
 
+Optional (if Python 3.11 is not installed):
+
+```bash
+# macOS (Homebrew)
+brew install python@3.11
+
+# Ubuntu/Debian
+# sudo apt-get update && sudo apt-get install -y python3.11 python3.11-venv python3-pip
+```
+
 ### 1. Clone the repository
 
 If you are cloning this service as part of the LogTech workspace:
@@ -54,6 +64,16 @@ source .venv/bin/activate
 When activated, your shell prompt usually shows `(.venv)`.
 
 ### 3. Install dependencies
+
+Install all required Python packages for app + development tools in one shot:
+
+```bash
+pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt -r requirements-dev.txt
+pre-commit install
+```
+
+If you only need runtime dependencies (without lint/format tools):
 
 ```bash
 pip install --upgrade pip
@@ -134,7 +154,7 @@ deactivate
 
 ## Development Utilities
 
-Install development tools:
+Install development tools separately (optional):
 
 ```bash
 source .venv/bin/activate
