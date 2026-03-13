@@ -210,7 +210,7 @@ def _opensearch_search(settings: Settings, index: str, body: dict[str, Any]) -> 
     except HTTPError as exc:
         return {
             "__error__": f"OpenSearch request failed: HTTP {exc.code}",
-            "__status__": 502,
+            "__status__": int(exc.code),
         }
     except URLError as exc:
         reason = getattr(exc, "reason", "connection error")
@@ -252,7 +252,7 @@ def _amp_query_range(
             result = payload.get("data", {}).get("result", [])
             return result if isinstance(result, list) else []
     except HTTPError as exc:
-        return [{"__error__": f"AMP request failed: HTTP {exc.code}", "__status__": 502}]
+        return [{"__error__": f"AMP request failed: HTTP {exc.code}", "__status__": int(exc.code)}]
     except URLError as exc:
         reason = getattr(exc, "reason", "connection error")
         return [{"__error__": f"AMP request failed: {reason}", "__status__": 502}]
