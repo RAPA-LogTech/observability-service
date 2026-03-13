@@ -1,129 +1,174 @@
 # observability-service
 
-FastAPI backend for logs/metrics/traces.
+FastAPI backend for logs, metrics, and traces.
 
-## Local Development Setup
+## Quick Start (from clone to run)
 
-### 1. Create Virtual Environment
+### 0. Prerequisites
+
+- Python 3.11
+- pip (bundled with Python)
+- git
+
+Check versions:
 
 ```bash
-cd observability-service
-python3.11 -m venv .venv
-source .venv/bin/activate  # macOS/Linux
-# or on Windows:
-# .venv\Scripts\activate
+python3.11 --version
+git --version
 ```
 
-### 2. Install Dependencies
+### 1. Clone the repository
+
+If you are cloning this service as part of the LogTech workspace:
+
+```bash
+git clone https://github.com/RAPA-LogTech/observability-service.git
+cd observability-service
+```
+
+If this service lives inside a monorepo, clone that repository and move into this folder:
+
+```bash
+git clone <your-monorepo-url>
+cd <your-monorepo>/observability-service
+```
+
+### 2. Create and activate virtual environment (venv)
+
+Create venv in the service root:
+
+```bash
+python3.11 -m venv .venv
+```
+
+Activate venv:
+
+```bash
+# macOS / Linux
+source .venv/bin/activate
+
+# Windows (PowerShell)
+# .venv\Scripts\Activate.ps1
+```
+
+When activated, your shell prompt usually shows `(.venv)`.
+
+### 3. Install dependencies
 
 ```bash
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 3. Configure Environment Variables
+### 4. Configure environment variables
+
+Create `.env` from example:
 
 ```bash
 cp .env.example .env
-# Edit .env with your OpenSearch/AMP credentials
-nano .env
 ```
 
-### 4. Run Application
+Open `.env` and fill values for your environment.
+
+Minimum commonly used settings:
+
+```env
+SERVICE_NAME=observability-service
+ENVIRONMENT=local
+DATA_SOURCE_MODE=real_only
+
+ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+
+OPENSEARCH_URL=https://<your-opensearch-endpoint>
+OPENSEARCH_LOGS_INDEX=logs-*
+OPENSEARCH_TRACES_INDEX=traces-*
+OPENSEARCH_TIMEOUT_SECONDS=8
+OPENSEARCH_VERIFY_TLS=true
+
+OPENSEARCH_USERNAME=<your-username>
+OPENSEARCH_PASSWORD=<your-password>
+# or use API key instead
+# OPENSEARCH_API_KEY=<your-api-key>
+```
+
+### 5. Run the server
 
 ```bash
-uvicorn main:app --reload --port 8001
+uvicorn main:app --reload --host 0.0.0.0 --port 8001
 ```
 
-Server will start at `http://localhost:8001`
+Server URL:
 
-- Health check: `GET http://localhost:8001/health`
-- Logs: `GET http://localhost:8001/v1/logs`
-- Metrics: `GET http://localhost:8001/v1/metrics`
-- Traces: `GET http://localhost:8001/v1/traces`
+- `http://localhost:8001`
 
-### 5. Deactivate Virtual Environment
+### 6. Verify API is working
+
+```bash
+curl -s http://localhost:8001/health
+curl -s "http://localhost:8001/v1/logs?limit=3"
+curl -s "http://localhost:8001/v1/metrics?minutes=15"
+curl -s "http://localhost:8001/v1/traces?limit=3"
+```
+
+### 7. Stop / deactivate
+
+Stop server with `Ctrl+C`, then:
 
 ```bash
 deactivate
 ```
 
-## Environment Variables
-
-Create `.env` file in project root:
-
-```bash
-cp .env.example .env
-```
-
-Edit with your OpenSearch/AMP endpoint and credentials:
-
-```
-DATA_SOURCE_MODE=real_only
-OPENSEARCH_URL=https://vpc-log-platform-dev-xxx.ap-northeast-2.es.amazonaws.com
-OPENSEARCH_LOGS_INDEX=logs-*
-OPENSEARCH_TRACES_INDEX=ss4o_traces-*
-OPENSEARCH_USERNAME=admin
-OPENSEARCH_PASSWORD=your_password
-ALLOWED_ORIGINS=*
-```
-
-## Project structure
-
-```text
-observability-service/
-  app/
-    api/
-      health.py
-      logs.py
-      metrics.py
-      traces.py
-    core/
-      config.py
-    data/
-      mock_data.py
-    services/
-      observability_service.py
-      streaming_service.py
-    main.py
-  main.py
-  .env.example
-  requirements.txt
-  requirements-dev.txt
-```
-
 ## API Endpoints
 
-- `GET /health` - Health check
-- `GET /v1/logs` - Query logs from OpenSearch
-- `GET /v1/logs/backlog` - Get paginated log backlog (for pagination)
-- `GET /v1/logs/stream` - SSE (Server-Sent Events) for real-time log streaming
-- `GET /v1/metrics` - Query metrics from AMP
-- `GET /v1/metrics/backlog` - Get paginated metrics backlog
-- `GET /v1/metrics/stream` - SSE for real-time metrics streaming
-- `GET /v1/traces` - Query traces from OpenSearch
-- `GET /v1/traces/{trace_id}` - Get specific trace detail
-- `GET /v1/traces/backlog` - Get paginated traces backlog
-- `GET /v1/traces/stream` - SSE for real-time traces streaming
+- `GET /health` - health check
+- `GET /v1/logs` - query logs from OpenSearch
+- `GET /v1/logs/backlog` - paginated backlog for stream recovery
+- `GET /v1/logs/stream` - SSE stream for real-time logs
+- `GET /v1/metrics` - query metrics (AMP)
+- `GET /v1/metrics/backlog` - paginated metrics backlog
+- `GET /v1/metrics/stream` - SSE stream for real-time metrics
+- `GET /v1/traces` - query traces from OpenSearch
+- `GET /v1/traces/{trace_id}` - trace detail
+- `GET /v1/traces/backlog` - paginated traces backlog
+- `GET /v1/traces/stream` - SSE stream for real-time traces
 
-## Development Tools
+## Development Utilities
 
-### Pre-commit with pylint
-
-Install dev dependencies:
+Install development tools:
 
 ```bash
-# Activate venv first
 source .venv/bin/activate
-
 pip install -r requirements-dev.txt
 pre-commit install
 ```
 
-Run linting manually:
+Run checks manually:
 
 ```bash
 pre-commit run --all-files
 ```
 
-After installation, `pylint` runs automatically before each commit.
+## Troubleshooting
+
+### `python3.11: command not found`
+
+Use installed Python path:
+
+```bash
+python3 -m venv .venv
+```
+
+### `ModuleNotFoundError` after install
+
+Usually venv is not activated. Re-activate and reinstall:
+
+```bash
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### OpenSearch timeout or auth error
+
+- Verify `OPENSEARCH_URL`, credentials/API key, TLS option
+- Confirm network access/security group/VPC routing
+- Test with `curl` directly to OpenSearch endpoint
