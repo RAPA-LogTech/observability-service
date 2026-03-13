@@ -308,6 +308,107 @@ def get_data_source_name() -> str:
     return "none"
 
 
+def _opensearch_health_check(settings: Settings) -> dict[str, Any]:
+    if not settings.opensearch_url:
+        return {"configured": False, "ok": False, "error": "OPENSEARCH_URL is not configured"}
+
+    url = settings.opensearch_url.rstrip("/")
+    headers: dict[str, str] = {}
+    auth = _opensearch_auth(settings)
+    if auth:
+        token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode("utf-8")).decode("ascii")
+        headers["Authorization"] = f"Basic {token}"
+    elif settings.opensearch_api_key:
+        headers["Authorization"] = f"ApiKey {settings.opensearch_api_key}"
+
+    request = Request(url=url, headers=headers, method="GET")
+
+    ssl_context: ssl.SSLContext | None = None
+    if url.lower().startswith("https://"):
+        if settings.opensearch_verify_tls:
+            ssl_context = ssl.create_default_context()
+        else:
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+
+    try:
+        with urlopen(
+            request,
+            timeout=settings.opensearch_timeout_seconds,
+            context=ssl_context,
+        ) as response:
+            return {
+                "configured": True,
+                "ok": True,
+                "url": url,
+                "http_status": getattr(response, "status", 200),
+            }
+    except HTTPError as exc:
+        return {
+            "configured": True,
+            "ok": False,
+            "url": url,
+            "http_status": int(exc.code),
+            "error": f"HTTP {exc.code}",
+        }
+    except URLError as exc:
+        reason = getattr(exc, "reason", "connection error")
+        return {"configured": True, "ok": False, "url": url, "error": str(reason)}
+    except TimeoutError:
+        return {"configured": True, "ok": False, "url": url, "error": "timeout"}
+
+
+def _amp_health_check(settings: Settings) -> dict[str, Any]:
+    if not settings.amp_endpoint:
+        return {"configured": False, "ok": False, "error": "AMP endpoint is not configured"}
+
+    workspace_base = _normalize_amp_endpoint_for_query(settings.amp_endpoint)
+    base_url = f"{workspace_base}/api/v1/query"
+    query_string = urlencode({"query": "1", "time": str(int(time.time()))})
+    url = f"{base_url}?{query_string}"
+    request = Request(url=url, method="GET")
+
+    try:
+        with urlopen(request, timeout=settings.amp_timeout_seconds) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+            status = payload.get("status")
+            return {
+                "configured": True,
+                "ok": status == "success",
+                "url": url,
+                "http_status": getattr(response, "status", 200),
+                "response_status": status,
+            }
+    except HTTPError as exc:
+        return {
+            "configured": True,
+            "ok": False,
+            "url": url,
+            "http_status": int(exc.code),
+            "error": f"HTTP {exc.code}",
+        }
+    except URLError as exc:
+        reason = getattr(exc, "reason", "connection error")
+        return {"configured": True, "ok": False, "url": url, "error": str(reason)}
+    except TimeoutError:
+        return {"configured": True, "ok": False, "url": url, "error": "timeout"}
+    except ValueError:
+        return {"configured": True, "ok": False, "url": url, "error": "invalid json"}
+
+
+def get_dependency_health() -> dict[str, Any]:
+    settings = get_settings()
+    opensearch = _opensearch_health_check(settings)
+    amp = _amp_health_check(settings)
+
+    return {
+        "opensearch": opensearch,
+        "amp": amp,
+        "all_ok": bool(opensearch.get("ok") and amp.get("ok")),
+    }
+
+
 def list_logs(
     service: str | None = None,
     level: str | None = None,
