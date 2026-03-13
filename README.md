@@ -44,7 +44,7 @@ DATA_SOURCE_MODE=real_only
 
 ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 
-OPENSEARCH_URL=https://vpc-log-platform-dev-berciu3s6yeeq6getvwavbebz4.ap-northeast-2.es.amazonaws.com
+OPENSEARCH_URL=https://vpc-logtech-dev-an3ndw6k4k7nzlvnrounfxfn3q.ap-northeast-2.es.amazonaws.com
 OPENSEARCH_LOGS_INDEX=logs-*
 OPENSEARCH_TRACES_INDEX=traces-*
 OPENSEARCH_TIMEOUT_SECONDS=8
@@ -52,7 +52,7 @@ OPENSEARCH_VERIFY_TLS=true
 OPENSEARCH_USERNAME=admin
 OPENSEARCH_PASSWORD=Fkvk1234!
 
-AMP_ENDPOINT=https://aps-workspaces.ap-northeast-2.amazonaws.com/workspaces/ws-438cd95b-8a3a-4106-b8e9-9b7c8af4f5f8/api/v1/remote_write
+AMP_ENDPOINT=https://aps-workspaces.ap-northeast-2.amazonaws.com/workspaces/ws-aafbc09f-d82d-4e8b-bb9c-46def73576e2/api/v1/query
 AMP_TIMEOUT_SECONDS=8
 AMP_STEP_SECONDS=60
 EOF
@@ -185,7 +185,7 @@ pkill -f "uvicorn main:app"     # 강제 종료
 
 ```bash
 curl -i -s --max-time 8 -u 'admin:Fkvk1234!' \
-  'https://vpc-log-platform-dev-berciu3s6yeeq6getvwavbebz4.ap-northeast-2.es.amazonaws.com'
+  'https://vpc-logtech-dev-an3ndw6k4k7nzlvnrounfxfn3q.ap-northeast-2.es.amazonaws.com'
 ```
 
 200이 뜨면 서버가 `.env`를 읽지 못한 것 → 서버 재시작 필요:
