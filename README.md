@@ -1,100 +1,45 @@
 # observability-service
 
-FastAPI backend for logs, metrics, and traces.
+FastAPI backend for logs, metrics, and traces. Runs on port **8081**.
 
-## Quick Start (from clone to run)
+---
 
-### 0. Prerequisites
+## EC2 배포 (처음부터)
 
-- Python 3.11
-- pip (bundled with Python)
-- git
+EC2 인스턴스에 서비스를 **완전히 새로 설치**할 때 이 섹션을 따라 진행하세요.
 
-Check versions:
+### 1. 패키지 설치
 
 ```bash
-python3.11 --version
-git --version
+sudo apt-get update
+sudo apt-get install -y python3.11 python3.11-venv python3-pip git
 ```
 
-Optional (if Python 3.11 is not installed):
+### 2. 코드 클론
 
 ```bash
-# macOS (Homebrew)
-brew install python@3.11
-
-# Ubuntu/Debian
-# sudo apt-get update && sudo apt-get install -y python3.11 python3.11-venv python3-pip
+cd ~
+git clone https://github.com/RAPA-LogTech/observability-service.git backend
+cd ~/backend
 ```
 
-### 1. Clone the repository
-
-If you are cloning this service as part of the LogTech workspace:
-
-```bash
-git clone https://github.com/RAPA-LogTech/observability-service.git
-cd observability-service
-```
-
-If this service lives inside a monorepo, clone that repository and move into this folder:
-
-```bash
-git clone <your-monorepo-url>
-cd <your-monorepo>/observability-service
-```
-
-### 2. Create and activate virtual environment (venv)
-
-Create venv in the service root:
+### 3. 가상환경 생성 및 의존성 설치
 
 ```bash
 python3.11 -m venv .venv
-```
-
-Activate venv:
-
-```bash
-# macOS / Linux
 source .venv/bin/activate
-
-# Windows (PowerShell)
-# .venv\Scripts\Activate.ps1
-```
-
-When activated, your shell prompt usually shows `(.venv)`.
-
-### 3. Install dependencies
-
-Install all required Python packages for app + development tools in one shot:
-
-```bash
-pip install --upgrade pip setuptools wheel
-pip install -r requirements.txt -r requirements-dev.txt
-pre-commit install
-```
-
-If you only need runtime dependencies (without lint/format tools):
-
-```bash
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4. Configure environment variables
+### 4. `.env` 파일 생성
 
-Create `.env` from example:
+아래 명령어를 그대로 복사해서 실행하면 `.env`가 생성됩니다:
 
 ```bash
-cp .env.example .env
-```
-
-Open `.env` and fill values for your environment.
-
-Minimum commonly used settings:
-
-```env
+cat > ~/backend/.env << 'EOF'
 SERVICE_NAME=observability-service
-ENVIRONMENT=local
+ENVIRONMENT=production
 DATA_SOURCE_MODE=real_only
 
 ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
@@ -104,120 +49,167 @@ OPENSEARCH_LOGS_INDEX=logs-*
 OPENSEARCH_TRACES_INDEX=traces-*
 OPENSEARCH_TIMEOUT_SECONDS=8
 OPENSEARCH_VERIFY_TLS=true
+OPENSEARCH_USERNAME=admin
+OPENSEARCH_PASSWORD=Fkvk1234!
+
 AMP_ENDPOINT=https://aps-workspaces.ap-northeast-2.amazonaws.com/workspaces/ws-438cd95b-8a3a-4106-b8e9-9b7c8af4f5f8/api/v1/remote_write
 AMP_TIMEOUT_SECONDS=8
 AMP_STEP_SECONDS=60
-
-OPENSEARCH_USERNAME=<your-username>
-OPENSEARCH_PASSWORD=<your-password>
-# or use API key instead
-# OPENSEARCH_API_KEY=<your-api-key>
+EOF
 ```
 
-### 5. Run the server
+생성 확인:
 
 ```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8081
+cat ~/backend/.env
 ```
 
-Server URL:
-
-- `http://localhost:8081`
-
-### 6. Verify API is working
+### 5. 서버 백그라운드 실행
 
 ```bash
+mkdir -p ~/backend/logs
+cd ~/backend
+source .venv/bin/activate
+nohup uvicorn main:app --host 0.0.0.0 --port 8081 > ~/backend/logs/app.log 2>&1 &
+echo $! > ~/backend/logs/app.pid
+echo "Started. PID: $(cat ~/backend/logs/app.pid)"
+```
+
+### 6. 동작 확인
+
+```bash
+# 헬스 체크
 curl -s http://localhost:8081/health
+
+# 로그 조회 테스트
 curl -s "http://localhost:8081/v1/logs?limit=3"
-curl -s "http://localhost:8081/v1/metrics?minutes=15"
-curl -s "http://localhost:8081/v1/traces?limit=3"
+
+# 실시간 로그 확인
+tail -f ~/backend/logs/app.log
 ```
 
-### 7. Stop / deactivate
+---
 
-Stop server with `Ctrl+C`, then:
+## 코드 업데이트 절차
 
-```bash
-deactivate
-```
-
-## API Endpoints
-
-- `GET /health` - health check
-- `GET /v1/logs` - query logs from OpenSearch
-- `GET /v1/logs/backlog` - paginated backlog for stream recovery
-- `GET /v1/logs/stream` - SSE stream for real-time logs
-- `GET /v1/metrics` - query metrics (AMP)
-- `GET /v1/metrics/backlog` - paginated metrics backlog
-- `GET /v1/metrics/stream` - SSE stream for real-time metrics
-- `GET /v1/traces` - query traces from OpenSearch
-- `GET /v1/traces/{trace_id}` - trace detail
-- `GET /v1/traces/backlog` - paginated traces backlog
-- `GET /v1/traces/stream` - SSE stream for real-time traces
-
-## Development Utilities
-
-Install development tools separately (optional):
+코드가 변경됐을 때 EC2에서 반영하는 방법:
 
 ```bash
+cd ~/backend
+git pull
 source .venv/bin/activate
-pip install -r requirements-dev.txt
-pre-commit install
+pip install -r requirements.txt   # requirements 변경 시만 필요
+
+# 서버 재시작
+kill $(cat logs/app.pid) 2>/dev/null || pkill -f "uvicorn main:app"
+sleep 1
+nohup uvicorn main:app --host 0.0.0.0 --port 8081 > logs/app.log 2>&1 &
+echo $! > logs/app.pid
+echo "Restarted. PID: $(cat logs/app.pid)"
 ```
 
-Run checks manually:
+---
+
+## 로컬 개발 (macOS)
+
+### 0. 사전 요구사항
 
 ```bash
-pre-commit run --all-files
+# macOS (Homebrew)
+brew install python@3.11 git
 ```
 
-## Troubleshooting
-
-### `python3.11: command not found`
-
-Use installed Python path:
+### 1. 의존성 설치
 
 ```bash
-python3 -m venv .venv
-```
-
-### `ModuleNotFoundError` after install
-
-Usually venv is not activated. Re-activate and reinstall:
-
-```bash
+cd observability-service
+python3.11 -m venv .venv
 source .venv/bin/activate
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### OpenSearch timeout or auth error
-
-- Verify `OPENSEARCH_URL`, credentials/API key, TLS option
-- Confirm network access/security group/VPC routing
-- Test with `curl` directly to OpenSearch endpoint
-
-### Apply `.env` changes to running venv server
-
-When `.env` is updated, restart the running process so new environment values are loaded.
-
-If you run with uvicorn directly:
+개발 도구까지 포함:
 
 ```bash
-# In project root
-cd observability-service
-source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
+pre-commit install
+```
 
-# Stop existing server with Ctrl+C, then start again
+### 2. `.env` 생성
+
+```bash
+cp .env.example .env
+# OPENSEARCH_USERNAME, OPENSEARCH_PASSWORD 입력
+```
+
+### 3. 서버 실행
+
+```bash
 uvicorn main:app --reload --host 0.0.0.0 --port 8081
 ```
 
-If you run as a systemd service on EC2:
+---
+
+## API Endpoints
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/health` | 헬스 체크 |
+| GET | `/v1/logs` | 로그 조회 (OpenSearch) |
+| GET | `/v1/logs/stream` | 실시간 로그 스트림 (SSE) |
+| GET | `/v1/logs/backlog` | 로그 페이징 |
+| GET | `/v1/metrics` | 메트릭 조회 (AMP) |
+| GET | `/v1/metrics/stream` | 실시간 메트릭 스트림 (SSE) |
+| GET | `/v1/metrics/backlog` | 메트릭 페이징 |
+| GET | `/v1/traces` | 트레이스 조회 (OpenSearch) |
+| GET | `/v1/traces/{trace_id}` | 트레이스 상세 |
+| GET | `/v1/traces/stream` | 실시간 트레이스 스트림 (SSE) |
+| GET | `/v1/traces/backlog` | 트레이스 페이징 |
+
+---
+
+## 트러블슈팅
+
+### 서버 PID 확인 / 수동 종료
 
 ```bash
-cd /opt/observability-service
-source .venv/bin/activate
-sudo systemctl restart observability-service
-sudo systemctl status observability-service
+cat ~/backend/logs/app.pid      # 저장된 PID 확인
+ps aux | grep uvicorn           # 실행 중인 프로세스 확인
+pkill -f "uvicorn main:app"     # 강제 종료
 ```
 
-Note: this project now loads `.env` using an absolute project path, so environment values are applied even if server is started from a different working directory.
+### OpenSearch 401 오류
+
+자격증명 직접 테스트:
+
+```bash
+curl -i -s --max-time 8 -u 'admin:Fkvk1234!' \
+  'https://vpc-log-platform-dev-berciu3s6yeeq6getvwavbebz4.ap-northeast-2.es.amazonaws.com'
+```
+
+200이 뜨면 서버가 `.env`를 읽지 못한 것 → 서버 재시작 필요:
+
+```bash
+kill $(cat ~/backend/logs/app.pid) 2>/dev/null || pkill -f "uvicorn main:app"
+sleep 1
+cd ~/backend && source .venv/bin/activate
+nohup uvicorn main:app --host 0.0.0.0 --port 8081 > logs/app.log 2>&1 &
+echo $! > logs/app.pid
+```
+
+### `ModuleNotFoundError`
+
+venv가 활성화되지 않은 경우:
+
+```bash
+source ~/backend/.venv/bin/activate
+pip install -r requirements.txt
+```
+
+### `python3.11: command not found`
+
+```bash
+# 설치된 Python으로 대체
+python3 -m venv .venv
+```
