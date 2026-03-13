@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import ssl
 import time
 from typing import Any
@@ -10,6 +11,8 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from ..core.config import Settings, get_settings
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_amp_endpoint_for_query(endpoint: str) -> str:
@@ -177,6 +180,7 @@ def _opensearch_search(settings: Settings, index: str, body: dict[str, Any]) -> 
         return {"__error__": "OPENSEARCH_URL is not configured", "__status__": 503}
 
     url = f"{settings.opensearch_url.rstrip('/')}/{index}/_search"
+    logger.info("OpenSearch request URL: %s", url)
     headers = _opensearch_headers(settings)
     auth = _opensearch_auth(settings)
     if auth:
@@ -244,7 +248,9 @@ def _amp_query_range(
         "step": str(step_seconds),
     }
     query_string = urlencode(params)
-    request = Request(url=f"{url}?{query_string}", method="GET")
+    full_url = f"{url}?{query_string}"
+    logger.info("AMP request URL: %s", full_url)
+    request = Request(url=full_url, method="GET")
 
     try:
         with urlopen(request, timeout=settings.amp_timeout_seconds) as response:

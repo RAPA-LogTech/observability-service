@@ -208,3 +208,46 @@ pip install -r requirements.txt
 # 설치된 Python으로 대체
 python3 -m venv .venv
 ```
+
+---
+
+## `git pull` 이후 어디부터 다시 실행하나요?
+
+아래 순서대로 하면 됩니다.
+
+### EC2 (포어그라운드 실행 기준)
+
+```bash
+cd ~/observability-service
+git pull
+source .venv/bin/activate
+
+# requirements 변경이 있을 때만 실행
+pip install -r requirements.txt
+
+# 기존 서버 종료 (실행 중이면)
+pkill -f "uvicorn main:app" || true
+sleep 1
+
+# 서버 다시 실행
+uvicorn main:app --host 0.0.0.0 --port 8081
+```
+
+체크 포인트:
+
+- 터미널에 `Application startup complete.`가 보이면 정상 실행
+- 다른 터미널에서 `curl -s http://localhost:8081/health` 확인
+
+### 로컬(macOS)
+
+```bash
+cd observability-service
+git pull
+source .venv/bin/activate
+
+# requirements 변경이 있을 때만 실행
+pip install -r requirements.txt
+
+# 개발 모드 실행
+uvicorn main:app --reload --host 0.0.0.0 --port 8081
+```
