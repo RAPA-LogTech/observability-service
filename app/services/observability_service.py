@@ -437,7 +437,7 @@ def list_logs(
                 "bool": {
                     "should": [
                         {"term": {"service.keyword": service}},
-                        {"term": {"serviceName.keyword": service}},
+                        {"term": {"service.name.keyword": service}},
                         {"term": {"resource.attributes.service@name.keyword": service}},
                     ],
                     "minimum_should_match": 1,
@@ -509,7 +509,7 @@ def list_logs(
                 "service": str(
                     _extract_nested(
                         source,
-                        "serviceName",
+                        "service.name",
                         "service",
                         "resource.service.name",
                         "resource.attributes.service@name",
@@ -688,7 +688,8 @@ def list_traces(
         trace_item = {
             "id": trace_id,
             "service": str(
-                _extract_nested(source, "service", "resource.service.name") or "unknown"
+                _extract_nested(source, "service.name", "service", "resource.service.name")
+                or "unknown"
             ),
             "operation": str(_extract_nested(source, "operation", "name") or "operation"),
             "startTime": int(source.get("startTime") or int(time.time() * 1000)),
