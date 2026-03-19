@@ -4,151 +4,18 @@ FastAPI backend for logs, metrics, and traces. Runs on port **8081**.
 
 ---
 
-## EC2 배포 (처음부터)
+## 배포 기준
 
-EC2 인스턴스에 서비스를 **완전히 새로 설치**할 때 이 섹션을 따라 진행하세요.
+운영 배포는 아래 `Docker 배포 운영 (env/yaml 기반)` 섹션만 사용합니다.
 
-### 1. 패키지 설치
-
-```bash
-sudo apt-get update
-sudo apt-get install -y python3.11 python3.11-venv python3-pip git
-```
-
-### 2. 코드 클론
-
-```bash
-cd ~
-git clone https://github.com/RAPA-LogTech/observability-service.git
-cd ~/observability-service
-```
-
-### 3. 가상환경 생성 및 의존성 설치
-
-```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-### 4. `.env` 파일 생성
-
-아래 명령어를 그대로 복사해서 실행하면 `.env`가 생성됩니다:
-
-```bash
-cat > ~/observability-service/.env << 'EOF'
-SERVICE_NAME=observability-service
-ENVIRONMENT=production
-DATA_SOURCE_MODE=real_only
-
-ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-
-OPENSEARCH_URL=https://vpc-logtech-dev-an3ndw6k4k7nzlvnrounfxfn3q.ap-northeast-2.es.amazonaws.com
-OPENSEARCH_LOGS_INDEX=logs-*
-OPENSEARCH_TRACES_INDEX=traces-*
-OPENSEARCH_TIMEOUT_SECONDS=8
-OPENSEARCH_VERIFY_TLS=true
-OPENSEARCH_USERNAME=admin
-OPENSEARCH_PASSWORD=SDdfgDG1234!
-
-AMP_ENDPOINT=https://aps-workspaces.ap-northeast-2.amazonaws.com/workspaces/ws-aafbc09f-d82d-4e8b-bb9c-46def73576e2/api/v1/query
-AMP_TIMEOUT_SECONDS=8
-AMP_STEP_SECONDS=60
-EOF
-```
-
-생성 확인:
-
-```bash
-cat ~/observability-service/.env
-```
-
-### 5. 서버 포어그라운드 실행
-
-```bash
-cd ~/observability-service
-source .venv/bin/activate
-uvicorn main:app --host 0.0.0.0 --port 8081
-```
-
-### 6. 동작 확인
-
-```bash
-# 헬스 체크
-curl -s http://localhost:8081/health
-
-# 로그 조회 테스트
-curl -s "http://localhost:8081/v1/logs?limit=3"
-
-# 실시간 로그는 위 uvicorn 실행 터미널에서 바로 출력됨
-```
-
----
-
-## 코드 업데이트 절차
-
-코드가 변경됐을 때 EC2에서 반영하는 방법:
-
-```bash
-cd ~/observability-service
-git pull
-source .venv/bin/activate
-pip install -r requirements.txt   # requirements 변경 시만 필요
-
-# 서버 재시작
-pkill -f "uvicorn main:app" || true
-sleep 1
-uvicorn main:app --host 0.0.0.0 --port 8081
-```
-
----
-
-## 로컬 개발 (macOS)
-
-### 0. 사전 요구사항
-
-```bash
-# macOS (Homebrew)
-brew install python@3.11 git
-```
-
-### 1. 의존성 설치
-
-```bash
-cd observability-service
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-개발 도구까지 포함:
-
-```bash
-pip install -r requirements.txt -r requirements-dev.txt
-pre-commit install
-```
-
-### 2. `.env` 생성
-
-```bash
-cp .env.example .env
-# OPENSEARCH_USERNAME, OPENSEARCH_PASSWORD 입력
-```
-
-### 3. 서버 실행
-
-```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8081
-```
+기존 venv 수동 실행 방식은 더 이상 사용하지 않습니다.
 
 ---
 
 ## API Endpoints
 
 | Method | Path | 설명 |
-|--------|------|------|
+| ------ | ---- | ---- |
 | GET | `/health` | 헬스 체크 |
 | GET | `/v1/logs` | 로그 조회 (OpenSearch) |
 | GET | `/v1/logs/stream` | 실시간 로그 스트림 (SSE) |
@@ -163,91 +30,158 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8081
 
 ---
 
-## 트러블슈팅
-
-### 포어그라운드 실행 중 종료
-
-```bash
-# 현재 터미널에서 실행 중이면 Ctrl+C
-
-# 다른 터미널에서 떠 있는 uvicorn 정리
-pkill -f "uvicorn main:app"
-ps aux | grep uvicorn
-```
+## 트러블슈팅 (Docker 기준)
 
 ### OpenSearch 401 오류
 
-자격증명 직접 테스트:
-
 ```bash
-curl -i -s --max-time 8 -u 'admin:SDdfgDG1234!' \
+curl -i -s --max-time 8 -u 'admin:<실제_비밀번호>' \
   'https://vpc-logtech-dev-an3ndw6k4k7nzlvnrounfxfn3q.ap-northeast-2.es.amazonaws.com'
 ```
 
-200이 뜨면 서버가 `.env`를 읽지 못한 것 → 서버 재시작 필요:
-
-```bash
-pkill -f "uvicorn main:app" || true
-sleep 1
-cd ~/observability-service && source .venv/bin/activate
-uvicorn main:app --host 0.0.0.0 --port 8081
-```
-
-### `ModuleNotFoundError`
-
-venv가 활성화되지 않은 경우:
-
-```bash
-source ~/observability-service/.venv/bin/activate
-pip install -r requirements.txt
-```
-
-### `python3.11: command not found`
-
-```bash
-# 설치된 Python으로 대체
-python3 -m venv .venv
-```
-
----
-
-## `git pull` 이후 어디부터 다시 실행하나요?
-
-아래 순서대로 하면 됩니다.
-
-### EC2 (포어그라운드 실행 기준)
+### git pull 이후 재배포
 
 ```bash
 cd ~/observability-service
 git pull
-source .venv/bin/activate
-
-# requirements 변경이 있을 때만 실행
-pip install -r requirements.txt
-
-# 기존 서버 종료 (실행 중이면)
-pkill -f "uvicorn main:app" || true
-sleep 1
-
-# 서버 다시 실행
-uvicorn main:app --host 0.0.0.0 --port 8081
+cd ~/observability-service/deploy
+./update.sh
 ```
 
-체크 포인트:
-
-- 터미널에 `Application startup complete.`가 보이면 정상 실행
-- 다른 터미널에서 `curl -s http://localhost:8081/health` 확인
-
-### 로컬(macOS)
+### 컨테이너 상태/로그 확인
 
 ```bash
-cd observability-service
+cd ~/observability-service/deploy
+docker compose --env-file .env.prod -f docker-compose.prod.yml ps
+docker compose --env-file .env.prod -f docker-compose.prod.yml logs --tail=100 observability-service
+```
+
+---
+
+## Docker 배포 운영 (env/yaml 기반)
+
+`deploy` 폴더 기준으로 운영하면 됩니다.
+
+생성된 파일:
+
+- `deploy/docker-compose.prod.yml`
+- `deploy/.env.prod.example`
+- `deploy/update.sh`
+
+### 1) 최초 1회 설정
+
+```bash
+cd ~/observability-service/deploy
+cp .env.prod.example .env.prod
+# .env.prod에서 IMAGE_NAME, IMAGE_TAG, OPENSEARCH/AMP 값 수정
+```
+
+### 2) 컨테이너 최초 기동
+
+```bash
+cd ~/observability-service/deploy
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+docker compose --env-file .env.prod -f docker-compose.prod.yml ps
+```
+
+### 3) `latest` 이미지로 업데이트
+
+```bash
+cd ~/observability-service/deploy
+./update.sh
+```
+
+동작 내용:
+
+- 최신 이미지 pull
+- `observability-service` 컨테이너만 recreate
+- 상태/최근 로그 출력
+
+### 4) 특정 태그로 업데이트/롤백
+
+```bash
+cd ~/observability-service/deploy
+./update.sh 2026.03.19-1
+```
+
+또는 `.env.prod`의 `IMAGE_TAG` 변경 후 다시:
+
+```bash
+./update.sh
+```
+
+---
+
+## 서버에 올리는 방법 + 환경변수 사용법
+
+아래 순서로 하면 EC2 서버에서 Docker 기반으로 운영할 수 있습니다.
+
+### 1) 서버에 코드 올리기 (최초)
+
+```bash
+cd ~
+git clone https://github.com/RAPA-LogTech/observability-service.git
+cd ~/observability-service/deploy
+```
+
+### 2) 서버에서 코드 갱신 (이후 반복)
+
+```bash
+cd ~/observability-service
 git pull
-source .venv/bin/activate
+cd ~/observability-service/deploy
+```
 
-# requirements 변경이 있을 때만 실행
-pip install -r requirements.txt
+### 3) 환경변수 파일 생성
 
-# 개발 모드 실행
-uvicorn main:app --reload --host 0.0.0.0 --port 8081
+```bash
+cd ~/observability-service/deploy
+cp .env.prod.example .env.prod
+```
+
+`.env.prod`에서 최소 아래 항목은 반드시 채우세요.
+
+```env
+IMAGE_NAME=rapa-logtech/observability-service
+IMAGE_TAG=latest
+
+ENVIRONMENT=production
+DATA_SOURCE_MODE=real_only
+ALLOWED_ORIGINS=http://13.209.190.231:3000
+
+OPENSEARCH_URL=https://vpc-logtech-dev-an3ndw6k4k7nzlvnrounfxfn3q.ap-northeast-2.es.amazonaws.com
+OPENSEARCH_LOGS_INDEX=logs-*
+OPENSEARCH_TRACES_INDEX=traces-*
+OPENSEARCH_USERNAME=admin
+OPENSEARCH_PASSWORD=<실제_비밀번호>
+
+AMP_ENDPOINT=https://aps-workspaces.ap-northeast-2.amazonaws.com/workspaces/ws-aafbc09f-d82d-4e8b-bb9c-46def73576e2/api/v1/query
+```
+
+주의:
+
+- `.env.prod`는 서버 전용 파일입니다. Git에 커밋하지 마세요.
+- 비밀번호에 `!` 같은 특수문자가 있어도 `.env.prod`에는 그대로 넣으면 됩니다.
+
+### 4) 컨테이너 실행
+
+```bash
+cd ~/observability-service/deploy
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+```
+
+### 5) 이미지 업데이트 (latest 운영)
+
+```bash
+cd ~/observability-service/deploy
+./update.sh
+```
+
+### 6) 상태 확인
+
+```bash
+cd ~/observability-service/deploy
+docker compose --env-file .env.prod -f docker-compose.prod.yml ps
+docker compose --env-file .env.prod -f docker-compose.prod.yml logs --tail=100 observability-service
+curl -s http://localhost:8081/health
 ```

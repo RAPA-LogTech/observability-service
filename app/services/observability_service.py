@@ -69,9 +69,7 @@ def _safe_status(value: str | None) -> str:
 def _opensearch_auth(settings: Settings) -> tuple[str, str] | None:
     if settings.opensearch_username and settings.opensearch_password:
         return (settings.opensearch_username, settings.opensearch_password)
-    # TEMP DEBUG FALLBACK: remove after env loading issue is resolved.
-    logger.warning("Using hardcoded OpenSearch credentials fallback for debugging")
-    return ("admin", "SDdfgDG1234!")
+    logger.error("OpenSearch credentials are not set in environment variables!")
     return None
 
 
