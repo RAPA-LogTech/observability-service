@@ -4,7 +4,7 @@ import time
 from collections import deque
 from typing import Any, Literal
 
-from .observability_service import list_logs, list_metrics, list_traces
+from .observability_service import get_latest_metric_points, list_logs, list_metrics, list_traces
 
 StreamKind = Literal["logs", "metrics", "traces"]
 
@@ -170,37 +170,22 @@ class _StreamState:
         return None
 
     def _next_metric_payload(self) -> dict[str, Any] | None:
-        metrics = list_metrics()
-        if not isinstance(metrics, list):
+        points = get_latest_metric_points()
+        if not points:
             return None
-
         now_ms = _now_ms()
-        points: list[dict[str, Any]] = []
-
-        for series in metrics:
-            if not isinstance(series, dict):
-                continue
-            series_id = str(series.get("id") or "")
-            series_points = series.get("points", [])
-            if not series_id or not isinstance(series_points, list) or not series_points:
-                continue
-
-            last_point = series_points[-1]
-            if not isinstance(last_point, dict):
-                continue
-
-            ts = int(last_point.get("ts") or now_ms)
-            value = float(last_point.get("value") or 0)
+        new_points: list[dict[str, Any]] = []
+        for p in points:
+            series_id = p["id"]
+            ts, value = p["ts"], p["value"]
             prev = self._last_metric_points.get(series_id)
             if prev and prev[0] == ts and prev[1] == value:
                 continue
-
             self._last_metric_points[series_id] = (ts, value)
-            points.append({"id": series_id, "ts": ts, "value": value})
-
-        if not points:
+            new_points.append(p)
+        if not new_points:
             return None
-        return {"ts": now_ms, "points": points}
+        return {"ts": now_ms, "points": new_points}
 
     def _next_trace_payload(self) -> dict[str, Any] | None:
         result = list_traces(limit=200, offset=0)
@@ -227,8 +212,8 @@ _LOG_STATE = _StreamState("logs", max_history=5000, min_delay_seconds=2.2, max_d
 _METRIC_STATE = _StreamState(
     "metrics",
     max_history=400,
-    min_delay_seconds=4.5,
-    max_delay_seconds=9.5,
+    min_delay_seconds=30.0,
+    max_delay_seconds=60.0,
 )
 _TRACE_STATE = _StreamState(
     "traces",

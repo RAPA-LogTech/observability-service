@@ -7,8 +7,12 @@ import ssl
 import time
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
+
+import boto3
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
 
 from ..core.config import Settings, get_settings
 
@@ -21,8 +25,6 @@ def _normalize_amp_endpoint_for_query(endpoint: str) -> str:
     if not base:
         return base
 
-    # Accept common AMP endpoint forms and normalize to workspace base URL.
-    # e.g. .../workspaces/<id>/api/v1/remote_write -> .../workspaces/<id>
     suffixes = (
         "/api/v1/remote_write",
         "/api/v1/query_range",
@@ -41,7 +43,6 @@ def _is_real_mode(settings: Settings) -> bool:
         return True
     if mode == "mock":
         return False
-    # auto
     return bool(settings.opensearch_url or settings.amp_endpoint)
 
 
@@ -82,7 +83,6 @@ def _opensearch_headers(settings: Settings) -> dict[str, str]:
 
 def _extract_nested(source: dict[str, Any], *paths: str) -> Any:
     for path in paths:
-        # Support flattened keys containing dots (e.g. "resource.attributes.service@name").
         if path in source and source[path] is not None:
             return source[path]
 
@@ -116,13 +116,13 @@ def _normalize_unix_timestamp(value: Any) -> str | None:
 
     abs_raw = abs(raw)
     if abs_raw >= 1e17:
-        seconds = raw / 1e9  # nanoseconds
+        seconds = raw / 1e9
     elif abs_raw >= 1e14:
-        seconds = raw / 1e6  # microseconds
+        seconds = raw / 1e6
     elif abs_raw >= 1e11:
-        seconds = raw / 1e3  # milliseconds
+        seconds = raw / 1e3
     else:
-        seconds = raw  # seconds
+        seconds = raw
 
     try:
         return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seconds))
@@ -165,7 +165,6 @@ def _extract_log_timestamp(source: dict[str, Any], doc: dict[str, Any]) -> str:
             normalized = _normalize_unix_timestamp(stripped)
             if normalized:
                 return normalized
-            # ISO8601/Zulu-like string values should pass through as-is.
             if "T" in stripped or stripped.endswith("Z"):
                 return stripped
             continue
@@ -177,6 +176,26 @@ def _extract_log_timestamp(source: dict[str, Any], doc: dict[str, Any]) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def _make_sigv4_request(method: str, url: str) -> Request:
+    """
+    AWS SigV4 인증 헤더를 붙인 urllib.request.Request 객체 생성 (exec에서 잘 되는 코드와 완전히 동일하게)
+    """
+    import boto3
+    from botocore.auth import SigV4Auth
+    from botocore.awsrequest import AWSRequest
+
+    session = boto3.Session()
+    creds = session.get_credentials().get_frozen_credentials()
+    region = "ap-northeast-2"
+    aws_req = AWSRequest(method=method, url=url)
+    SigV4Auth(creds, "aps", region).add_auth(aws_req)
+    headers = dict(aws_req.headers)
+    # exec에서 잘 되는 코드와 완전히 동일하게 User-Agent, Host 등 헤더를 그대로 사용
+    # 필요시 추가 헤더를 여기에 삽입
+    logger.info(f"[SIGV4 DEBUG] url={url} region={region} headers={headers}")
+    return Request(url=url, method=method, headers=headers)
+
+
 def _opensearch_search(settings: Settings, index: str, body: dict[str, Any]) -> dict[str, Any]:
     if not settings.opensearch_url:
         return {"__error__": "OPENSEARCH_URL is not configured", "__status__": 503}
@@ -186,11 +205,7 @@ def _opensearch_search(settings: Settings, index: str, body: dict[str, Any]) -> 
     headers = _opensearch_headers(settings)
     auth = _opensearch_auth(settings)
     if auth:
-        logger.info(
-            "OpenSearch auth: username=%s password=%s",
-            auth[0],
-            auth[1],
-        )
+        logger.info("OpenSearch auth: username=%s password=%s", auth[0], auth[1])
         token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode("utf-8")).decode("ascii")
         headers["Authorization"] = f"Basic {token}"
     elif settings.opensearch_api_key:
@@ -210,29 +225,18 @@ def _opensearch_search(settings: Settings, index: str, body: dict[str, Any]) -> 
         if settings.opensearch_verify_tls:
             ssl_context = ssl.create_default_context()
         else:
-            # Useful for local SSH tunnel testing (e.g. https://localhost:9200).
             ssl_context = ssl.create_default_context()
             ssl_context.check_hostname = False
             ssl_context.verify_mode = ssl.CERT_NONE
 
     try:
-        with urlopen(
-            request,
-            timeout=settings.opensearch_timeout_seconds,
-            context=ssl_context,
-        ) as response:
+        with urlopen(request, timeout=settings.opensearch_timeout_seconds, context=ssl_context) as response:
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
-        return {
-            "__error__": f"OpenSearch request failed: HTTP {exc.code}",
-            "__status__": int(exc.code),
-        }
+        return {"__error__": f"OpenSearch request failed: HTTP {exc.code}", "__status__": int(exc.code)}
     except URLError as exc:
         reason = getattr(exc, "reason", "connection error")
-        return {
-            "__error__": f"OpenSearch request failed: {reason}",
-            "__status__": 502,
-        }
+        return {"__error__": f"OpenSearch request failed: {reason}", "__status__": 502}
     except TimeoutError:
         return {"__error__": "OpenSearch request timed out", "__status__": 504}
     except ValueError:
@@ -258,10 +262,10 @@ def _amp_query_range(
         "end": str(end_ts),
         "step": str(step_seconds),
     }
-    query_string = urlencode(params)
-    full_url = f"{url}?{query_string}"
+    full_url = f"{url}?{urlencode(params, quote_via=quote)}"
     logger.info("AMP request URL: %s", full_url)
-    request = Request(url=full_url, method="GET")
+
+    request = _make_sigv4_request("GET", full_url)
 
     try:
         with urlopen(request, timeout=settings.amp_timeout_seconds) as response:
@@ -279,7 +283,53 @@ def _amp_query_range(
         return [{"__error__": "AMP response is not valid JSON", "__status__": 502}]
 
 
-def _promql_points(series: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _amp_instant_query(settings: Settings, query: str) -> list[dict[str, Any]]:
+    """AMP instant query → 현재 시점 값만 반환"""
+    if not settings.amp_endpoint:
+        return []
+    workspace_base = _normalize_amp_endpoint_for_query(settings.amp_endpoint)
+    url = f"{workspace_base}/api/v1/query?{urlencode({'query': query, 'time': str(int(time.time()))}, quote_via=quote)}"
+    try:
+        request = _make_sigv4_request("GET", url)
+        with urlopen(request, timeout=settings.amp_timeout_seconds) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+            return payload.get("data", {}).get("result", [])
+    except Exception:
+        return []
+
+
+def get_latest_metric_points() -> list[dict[str, Any]]:
+    """스트리밍용: 각 서비스×메트릭의 현재값만 instant query로 조회"""
+    settings = get_settings()
+    if not _is_real_mode(settings) or not settings.amp_endpoint:
+        return []
+
+    services = _amp_list_services(settings)
+    if not services:
+        return []
+
+    metric_specs = [
+        {"suffix": "request_rate", "unit": "req/s",  "query": settings.amp_throughput_query},
+        {"suffix": "error_rate",   "unit": "%",       "query": settings.amp_error_rate_query},
+        {"suffix": "latency_p95",  "unit": "ms",      "query": settings.amp_latency_p95_query},
+        {"suffix": "cpu_usage",    "unit": "%",       "query": settings.amp_cpu_query},
+        {"suffix": "memory_usage", "unit": "%",       "query": settings.amp_memory_query},
+    ]
+
+    now_ms = int(time.time() * 1000)
+    points: list[dict[str, Any]] = []
+    for svc in services:
+        for spec in metric_specs:
+            query = spec["query"].replace("$service", svc)
+            result = _amp_instant_query(settings, query)
+            if not result:
+                continue
+            try:
+                value = float(result[0]["value"][1])
+            except (KeyError, IndexError, ValueError, TypeError):
+                continue
+            points.append({"id": f"{svc}_{spec['suffix']}", "ts": now_ms, "value": value})
+    return points
     if not series:
         return []
 
@@ -334,25 +384,10 @@ def _opensearch_health_check(settings: Settings) -> dict[str, Any]:
             ssl_context.verify_mode = ssl.CERT_NONE
 
     try:
-        with urlopen(
-            request,
-            timeout=settings.opensearch_timeout_seconds,
-            context=ssl_context,
-        ) as response:
-            return {
-                "configured": True,
-                "ok": True,
-                "url": url,
-                "http_status": getattr(response, "status", 200),
-            }
+        with urlopen(request, timeout=settings.opensearch_timeout_seconds, context=ssl_context) as response:
+            return {"configured": True, "ok": True, "url": url, "http_status": getattr(response, "status", 200)}
     except HTTPError as exc:
-        return {
-            "configured": True,
-            "ok": False,
-            "url": url,
-            "http_status": int(exc.code),
-            "error": f"HTTP {exc.code}",
-        }
+        return {"configured": True, "ok": False, "url": url, "http_status": int(exc.code), "error": f"HTTP {exc.code}"}
     except URLError as exc:
         reason = getattr(exc, "reason", "connection error")
         return {"configured": True, "ok": False, "url": url, "error": str(reason)}
@@ -368,7 +403,8 @@ def _amp_health_check(settings: Settings) -> dict[str, Any]:
     base_url = f"{workspace_base}/api/v1/query"
     query_string = urlencode({"query": "1", "time": str(int(time.time()))})
     url = f"{base_url}?{query_string}"
-    request = Request(url=url, method="GET")
+
+    request = _make_sigv4_request("GET", url)
 
     try:
         with urlopen(request, timeout=settings.amp_timeout_seconds) as response:
@@ -382,13 +418,7 @@ def _amp_health_check(settings: Settings) -> dict[str, Any]:
                 "response_status": status,
             }
     except HTTPError as exc:
-        return {
-            "configured": True,
-            "ok": False,
-            "url": url,
-            "http_status": int(exc.code),
-            "error": f"HTTP {exc.code}",
-        }
+        return {"configured": True, "ok": False, "url": url, "http_status": int(exc.code), "error": f"HTTP {exc.code}"}
     except URLError as exc:
         reason = getattr(exc, "reason", "connection error")
         return {"configured": True, "ok": False, "url": url, "error": str(reason)}
@@ -518,13 +548,7 @@ def list_logs(
                 "env": _safe_env(str(_extract_nested(source, "env", "environment") or "prod")),
                 "level": _safe_level(
                     str(
-                        _extract_nested(
-                            source,
-                            "level",
-                            "severity",
-                            "severity_text",
-                            "severityText",
-                        )
+                        _extract_nested(source, "level", "severity", "severity_text", "severityText")
                         or "INFO"
                     )
                 ),
@@ -537,69 +561,76 @@ def list_logs(
     return {"logs": logs, "total": max(total_value, len(logs))}
 
 
+def _amp_list_services(settings: Settings) -> list[str]:
+    if not settings.amp_endpoint:
+        return []
+    workspace_base = _normalize_amp_endpoint_for_query(settings.amp_endpoint)
+    url = f"{workspace_base}/api/v1/label/job/values"
+    try:
+        request = _make_sigv4_request("GET", url)
+        with urlopen(request, timeout=settings.amp_timeout_seconds) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+            # job 형식: "namespace/service" → service명만 추출, 중복 제거
+            jobs = payload.get("data", [])
+            seen: set[str] = set()
+            services: list[str] = []
+            for job in jobs:
+                svc = job.split("/")[-1] if "/" in job else job
+                if svc not in seen:
+                    seen.add(svc)
+                    services.append(svc)
+            return services
+    except Exception:
+        return []
+
+
 def list_metrics(service: str | None = None) -> list[dict] | dict[str, Any]:
     settings = get_settings()
     if not _is_real_mode(settings):
         return []
     if not settings.amp_endpoint:
-        return {
-            "__error__": "DATA_SOURCE_MODE is real but AMP_ENDPOINT is not configured",
-            "__status__": 503,
-        }
+        return {"__error__": "DATA_SOURCE_MODE is real but AMP_ENDPOINT is not configured", "__status__": 503}
 
-    target_service = service or settings.amp_default_service
+    services = [service] if service else _amp_list_services(settings)
+    if not services:
+        return []
+
     now = int(time.time())
     start = now - 3600
     step = max(15, settings.amp_step_seconds)
 
     metric_specs = [
-        {
-            "id": "metric-error-rate",
-            "name": "Error Rate",
-            "unit": "%",
-            "color": "#EF4444",
-            "query": settings.amp_error_rate_query,
-        },
-        {
-            "id": "metric-latency-p95",
-            "name": "Latency P95",
-            "unit": "ms",
-            "color": "#3B82F6",
-            "query": settings.amp_latency_p95_query,
-        },
-        {
-            "id": "metric-throughput",
-            "name": "Throughput",
-            "unit": "req/s",
-            "color": "#10B981",
-            "query": settings.amp_throughput_query,
-        },
+        {"suffix": "request_rate", "unit": "req/s",  "query": settings.amp_throughput_query},
+        {"suffix": "error_rate",   "unit": "%",       "query": settings.amp_error_rate_query},
+        {"suffix": "latency_p95",  "unit": "ms",      "query": settings.amp_latency_p95_query},
+        {"suffix": "cpu_usage",    "unit": "%",       "query": settings.amp_cpu_query},
+        {"suffix": "memory_usage", "unit": "%",       "query": settings.amp_memory_query},
     ]
 
     series_list: list[dict[str, Any]] = []
-    for spec in metric_specs:
-        query = spec["query"].replace("$service", target_service)
-        result = _amp_query_range(settings, query, start, now, step)
-        if result and isinstance(result[0], dict) and "__error__" in result[0]:
-            return {
-                "__error__": str(result[0].get("__error__")),
-                "__status__": int(result[0].get("__status__", 502)),
-            }
-
-        points = _promql_points(result)
-        if not points:
-            continue
-
-        series_list.append(
-            {
-                "id": spec["id"],
-                "name": spec["name"],
+    for svc in services:
+        for spec in metric_specs:
+            query = spec["query"].replace("$service", svc)
+            result = _amp_query_range(settings, query, start, now, step)
+            if result and isinstance(result[0], dict) and "__error__" in result[0]:
+                return {"__error__": str(result[0].get("__error__")), "__status__": int(result[0].get("__status__", 502))}
+            values = result[0].get("values", []) if result else []
+            points = []
+            for item in values:
+                if isinstance(item, list) and len(item) == 2:
+                    try:
+                        points.append({"ts": int(float(item[0]) * 1000), "value": float(item[1])})
+                    except (TypeError, ValueError):
+                        pass
+            if not points:
+                continue
+            series_list.append({
+                "id": f"{svc}_{spec['suffix']}",
+                "name": f"{svc}_{spec['suffix']}",
                 "unit": spec["unit"],
-                "service": target_service,
+                "service": svc,
                 "points": points,
-                "color": spec["color"],
-            }
-        )
+            })
 
     return series_list
 

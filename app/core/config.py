@@ -22,16 +22,11 @@ class Settings(BaseSettings):
     amp_endpoint: str | None = None
     amp_timeout_seconds: float = 8.0
     amp_step_seconds: int = 60
-    amp_default_service: str = "checkout"
-    amp_error_rate_query: str = (
-        "(sum(rate(http_requests_total{service=\"$service\",status=~\"5..\"}[5m])) "
-        "/ clamp_min(sum(rate(http_requests_total{service=\"$service\"}[5m])), 1)) * 100"
-    )
-    amp_latency_p95_query: str = (
-        "histogram_quantile(0.95, "
-        "sum(rate(http_request_duration_seconds_bucket{service=\"$service\"}[5m])) by (le)) * 1000"
-    )
-    amp_throughput_query: str = "sum(rate(http_requests_total{service=\"$service\"}[1m]))"
+    amp_error_rate_query: str = 'sum(app_http_server_error_ratio_5m{job=~".+/$service"}) by (job)'
+    amp_latency_p95_query: str = 'sum(app_http_server_latency_p95_5m{job=~".+/$service"}) by (job) * 1000'
+    amp_throughput_query: str = 'sum(app_http_server_requests_5m{job=~".+/$service"}) by (job)'
+    amp_cpu_query: str = 'sum(app_container_cpu_utilization_avg_5m{job=~".+/$service"}) by (job) * 100'
+    amp_memory_query: str = 'sum(app_container_memory_utilization_avg_5m{job=~".+/$service"}) by (job) * 100'
 
     # Comma-separated origins in .env
     allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
