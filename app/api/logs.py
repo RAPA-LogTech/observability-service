@@ -22,10 +22,30 @@ def get_logs(
     service: str | None = None,
     level: str | None = None,
     env: str | None = None,
+    cluster: str | None = None,
+    startTime: int | None = None,
+    endTime: int | None = None,
+    customTags: str | None = None,  # JSON 직렬화된 문자열로 전달
     limit: int = Query(default=100, le=1000),
     offset: int = 0,
 ) -> dict:
-    result = list_logs(service=service, level=level, env=env, limit=limit, offset=offset)
+    tags = None
+    if customTags:
+        try:
+            tags = json.loads(customTags)
+        except Exception:
+            tags = None
+    result = list_logs(
+        service=service,
+        level=level,
+        env=env,
+        cluster=cluster,
+        start_time=startTime,
+        end_time=endTime,
+        custom_tags=tags,
+        limit=limit,
+        offset=offset,
+    )
     if "__error__" in result:
         raise HTTPException(
             status_code=int(result.get("__status__", 502)),

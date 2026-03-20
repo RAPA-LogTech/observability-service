@@ -444,6 +444,10 @@ def list_logs(
     service: str | None = None,
     level: str | None = None,
     env: str | None = None,
+    cluster: str | None = None,
+    start_time: int | None = None,
+    end_time: int | None = None,
+    custom_tags: dict | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> dict:
@@ -486,6 +490,21 @@ def list_logs(
         )
     if env:
         filters.append({"term": {"env.keyword": env}})
+    if cluster:
+        filters.append({"term": {"cluster.keyword": cluster}})
+    if start_time or end_time:
+        range_filter = {}
+        if start_time:
+            range_filter["gte"] = start_time
+        if end_time:
+            range_filter["lte"] = end_time
+        filters.append({"range": {"@timestamp": range_filter}})
+    if custom_tags and isinstance(custom_tags, dict):
+        for k, v in custom_tags.items():
+            if isinstance(v, list):
+                filters.append({"terms": {f"tags.{k}.keyword": v}})
+            else:
+                filters.append({"term": {f"tags.{k}.keyword": v}})
 
     body: dict[str, Any] = {
         "from": max(0, offset),
@@ -520,6 +539,7 @@ def list_logs(
 
     logs: list[dict[str, Any]] = []
     for doc in docs:
+
         source = doc.get("_source", {}) if isinstance(doc, dict) else {}
         if not isinstance(source, dict):
             continue
@@ -530,21 +550,33 @@ def list_logs(
         tags: dict[str, Any] = tags_obj if isinstance(tags_obj, dict) else {}
 
         message = _extract_nested(source, "message", "log", "body")
+
+        # 진단용: service 추출이 안될 때 로그 출력
+        service_val = (
+            _extract_nested(
+                source,
+                "service.name",
+                "service",
+                "resource.service.name",
+                "resource.attributes.service@name",
+                "kubernetes.labels.app",
+            )
+            or source.get("resource", {}).get("service.name")
+            or "unknown"
+        )
+
+        trace_id = (
+            _extract_nested(source, "traceId")
+            or source.get("traceId")
+            or source.get("resource", {}).get("traceId")
+            or ""
+        )
         logs.append(
             {
                 "id": str(doc.get("_id") or _extract_nested(source, "id") or f"log-{len(logs)+1}"),
                 "timestamp": _extract_log_timestamp(source, doc),
-                "service": str(
-                    _extract_nested(
-                        source,
-                        "service.name",
-                        "service",
-                        "resource.service.name",
-                        "resource.attributes.service@name",
-                        "kubernetes.labels.app",
-                    )
-                    or "unknown",
-                ),
+                "service": str(service_val),
+                "traceId": str(trace_id),
                 "env": _safe_env(str(_extract_nested(source, "env", "environment") or "prod")),
                 "level": _safe_level(
                     str(
@@ -584,7 +616,7 @@ def _amp_list_services(settings: Settings) -> list[str]:
         return []
 
 
-def list_metrics(service: str | None = None) -> list[dict] | dict[str, Any]:
+def list_metrics(service: str | None = None, start: int | None = None, end: int | None = None) -> list[dict] | dict[str, Any]:
     settings = get_settings()
     if not _is_real_mode(settings):
         return []
@@ -596,7 +628,9 @@ def list_metrics(service: str | None = None) -> list[dict] | dict[str, Any]:
         return []
 
     now = int(time.time())
-    start = now - 3600
+    # 기본값: 최근 15분
+    end = end or now
+    start = start or (end - 900)
     step = max(15, settings.amp_step_seconds)
 
     metric_specs = [
@@ -611,7 +645,7 @@ def list_metrics(service: str | None = None) -> list[dict] | dict[str, Any]:
     for svc in services:
         for spec in metric_specs:
             query = spec["query"].replace("$service", svc)
-            result = _amp_query_range(settings, query, start, now, step)
+            result = _amp_query_range(settings, query, start, end, step)
             if result and isinstance(result[0], dict) and "__error__" in result[0]:
                 return {"__error__": str(result[0].get("__error__")), "__status__": int(result[0].get("__status__", 502))}
             values = result[0].get("values", []) if result else []
@@ -687,7 +721,13 @@ def list_traces(
         if not isinstance(source, dict):
             continue
 
-        trace_id = str(_extract_nested(source, "id", "traceId") or doc.get("_id") or "")
+        trace_id = str(
+            _extract_nested(source, "id", "traceId")
+            or source.get("traceId")
+            or source.get("resource", {}).get("traceId")
+            or doc.get("_id")
+            or ""
+        )
         if not trace_id:
             continue
 

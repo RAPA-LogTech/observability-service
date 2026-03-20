@@ -13,20 +13,21 @@ FastAPI backend for logs, metrics, and traces. 기본 포트: **8081**
 
 ```bash
 cat > docker-compose.yaml <<'EOF'
+version: '3.8'
 services:
   observability-service:
-    build:
-      context: ./observability-service
-      dockerfile: Dockerfile
+    image: gurururu/observability-service:latest
+    container_name: observability-service
+    restart: unless-stopped
     ports:
       - "8081:8081"
     environment:
-      - ALLOWED_ORIGINS=http://localhost:3000
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://3.35.146.202:4318
       - OPENSEARCH_URL=https://vpc-log-platform-dev-emru3vfn6thqsybe5qc7nndgga.ap-northeast-2.es.amazonaws.com
       - OPENSEARCH_USERNAME=admin
-      - OPENSEARCH_PASSWORD=your_password
-      - AMP_ENDPOINT=https://aps-workspaces.ap-northeast-2.amazonaws.com/workspaces/ws-xxxx/api/v1/query
-    restart: unless-stopped
+      - OPENSEARCH_PASSWORD=Fkvk1234!
+      - AMP_ENDPOINT=https://aps-workspaces.ap-northeast-2.amazonaws.com/workspaces/ws-d821ca92-5426-43ae-a112-a98512ce9edd/api/v1/query
+      - ALLOWED_ORIGINS=http://localhost:3000
 EOF
 ```
 

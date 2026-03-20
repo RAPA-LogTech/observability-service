@@ -18,13 +18,20 @@ router = APIRouter(prefix="/v1", tags=["metrics"])
 
 
 @router.get("/metrics")
-def get_metrics(service: str | None = None) -> list[dict]:
-    result = list_metrics(service=service)
+def get_metrics(
+    service: str | None = None,
+    start: int | None = None,
+    end: int | None = None,
+    limit: int | None = None,
+) -> object:
+    result = list_metrics(service=service, start=start, end=end)
     if isinstance(result, dict) and "__error__" in result:
         raise HTTPException(
             status_code=int(result.get("__status__", 502)),
             detail=str(result.get("__error__")),
         )
+    if limit is not None and isinstance(result, list):
+        return result[:limit]
     return result
 
 
