@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     # If set, backend can query actual AWS services.
     opensearch_url: str | None = None
     opensearch_logs_index: str = "logs-*"
-    opensearch_traces_index: str | None = None
+    opensearch_traces_index: str | None = "traces-*"
     opensearch_timeout_seconds: float = 8.0
     opensearch_verify_tls: bool = True
     opensearch_username: str | None = None

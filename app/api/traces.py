@@ -33,14 +33,6 @@ def get_traces(
     return result
 
 
-@router.get("/traces/{trace_id}")
-def get_trace(trace_id: str) -> dict:
-    trace = get_trace_detail(trace_id)
-    if trace is None:
-        raise HTTPException(status_code=404, detail=f"Trace {trace_id} not found")
-    return trace
-
-
 @router.get("/traces/backlog")
 async def get_traces_backlog(
     cursor: int = Query(default=0, ge=0),
@@ -81,3 +73,11 @@ async def stream_traces(request: Request) -> StreamingResponse:
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/traces/{trace_id}")
+def get_trace(trace_id: str) -> dict:
+    trace = get_trace_detail(trace_id)
+    if trace is None:
+        raise HTTPException(status_code=404, detail=f"Trace {trace_id} not found")
+    return trace

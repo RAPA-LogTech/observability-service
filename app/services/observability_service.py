@@ -98,6 +98,55 @@ def _extract_nested(source: dict[str, Any], *paths: str) -> Any:
     return None
 
 
+def _normalize_to_millis(value: Any) -> int | None:
+    """Normalize seconds/ms/us/ns epoch values or ISO8601 strings into Unix milliseconds."""
+    # ISO8601 문자열 처리
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        # ISO8601 형식인 경우 파싱
+        if "T" in stripped or ("-" in stripped and ":" in stripped):
+            try:
+                from datetime import datetime
+                # ISO8601 형식 파싱 (Z 접미사 제거)
+                dt_str = stripped.rstrip("Z")
+                if "." in dt_str:
+                    dt = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%S.%f")
+                else:
+                    dt = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%S")
+                return int(dt.timestamp() * 1000)
+            except (ValueError, ImportError):
+                pass
+            # float 파싱 시도
+            try:
+                raw = float(stripped)
+            except ValueError:
+                return None
+        else:
+            # 숫자 문자열
+            try:
+                raw = float(stripped)
+            except ValueError:
+                return None
+    elif isinstance(value, (int, float)):
+        raw = float(value)
+    else:
+        return None
+
+    abs_raw = abs(raw)
+    if abs_raw >= 1e17:
+        return int(raw / 1e9)  # ns → ms
+    elif abs_raw >= 1e14:
+        return int(raw / 1e6)  # us → ms
+    elif abs_raw >= 1e11:
+        return int(raw / 1e3)  # s → ms
+    elif abs_raw < 1e10:
+        return int(raw * 1000)  # s → ms
+    else:
+        return int(raw)  # 이미 ms
+
+
 def _normalize_unix_timestamp(value: Any) -> str | None:
     """Normalize seconds/ms/us/ns epoch values into ISO8601 UTC string."""
     raw: float
@@ -744,10 +793,10 @@ def list_traces(
                     "parentSpanId": span.get("parentSpanId"),
                     "service": str(span.get("service") or source.get("service") or "unknown"),
                     "operation": str(span.get("operation") or span.get("name") or "operation"),
-                    "startTime": int(
-                        span.get("startTime") or source.get("startTime") or int(time.time() * 1000)
-                    ),
-                    "duration": int(span.get("duration") or 0),
+                    "startTime": _normalize_to_millis(
+                        span.get("startTime") or source.get("startTime")
+                    ) or int(time.time() * 1000),
+                    "duration": _normalize_to_millis(span.get("duration")) or 0,
                     "status": _safe_status(str(span.get("status") or source.get("status") or "ok")),
                     "tags": span.get("tags") if isinstance(span.get("tags"), dict) else {},
                 }
@@ -761,8 +810,8 @@ def list_traces(
                 or "unknown"
             ),
             "operation": str(_extract_nested(source, "operation", "name") or "operation"),
-            "startTime": int(source.get("startTime") or int(time.time() * 1000)),
-            "duration": int(source.get("duration") or 0),
+            "startTime": _normalize_to_millis(source.get("startTime")) or int(time.time() * 1000),
+            "duration": _normalize_to_millis(source.get("duration")) or 0,
             "status": status_value,
             "status_code": int(source.get("status_code") or (200 if status_value == "ok" else 500)),
             "spans": normalized_spans,
