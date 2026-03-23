@@ -624,6 +624,7 @@ def list_logs(
             {
                 "id": str(doc.get("_id") or _extract_nested(source, "id") or f"log-{len(logs)+1}"),
                 "timestamp": _extract_log_timestamp(source, doc),
+                "source": doc.get("_index", ""),  # 로그 소스 (logs-app, logs-host 등)
                 "service": str(service_val),
                 "traceId": str(trace_id),
                 "env": _safe_env(str(_extract_nested(source, "env", "environment") or "prod")),

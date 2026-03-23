@@ -11,7 +11,9 @@ class Settings(BaseSettings):
 
     # If set, backend can query actual AWS services.
     opensearch_url: str | None = None
-    opensearch_logs_index: str = "logs-*"
+    opensearch_logs_index: str = "logs-*"  # logs-app, logs-host, logs-* 등 상황에 따라 사용
+    opensearch_app_logs_index: str = "logs-app"  # logs-app만 명확히 조회할 때
+    opensearch_host_logs_index: str = "logs-host"  # logs-host만 명확히 조회할 때
     opensearch_traces_index: str | None = "traces-*"
     opensearch_timeout_seconds: float = 8.0
     opensearch_verify_tls: bool = True
