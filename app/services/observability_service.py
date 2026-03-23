@@ -494,6 +494,7 @@ def list_logs(
     level: str | None = None,
     env: str | None = None,
     cluster: str | None = None,
+    log_source: str | None = None,
     start_time: int | None = None,
     end_time: int | None = None,
     custom_tags: dict | None = None,
@@ -519,6 +520,7 @@ def list_logs(
                     "should": [
                         {"term": {"service.keyword": service}},
                         {"term": {"service.name.keyword": service}},
+                        {"term": {"resource.service.name.keyword": service}},
                         {"term": {"resource.attributes.service@name.keyword": service}},
                     ],
                     "minimum_should_match": 1,
@@ -532,13 +534,22 @@ def list_logs(
                     "should": [
                         {"term": {"level.keyword": level.upper()}},
                         {"term": {"severityText.keyword": level.upper()}},
+                        {"term": {"severity.text.keyword": level.upper()}},
                     ],
                     "minimum_should_match": 1,
                 }
             }
         )
     if env:
-        filters.append({"term": {"env.keyword": env}})
+        filters.append({
+            "bool": {
+                "should": [
+                    {"term": {"env.keyword": env}},
+                    {"term": {"resource.deployment.environment.keyword": env}},
+                ],
+                "minimum_should_match": 1,
+            }
+        })
     if cluster:
         filters.append({"term": {"cluster.keyword": cluster}})
     if start_time or end_time:
@@ -567,7 +578,7 @@ def list_logs(
         "query": {"bool": {"filter": filters}},
     }
 
-    result = _opensearch_search(settings, settings.opensearch_logs_index, body)
+    result = _opensearch_search(settings, settings.opensearch_logs_index if not log_source else f"logs-{log_source}", body)
     if "__error__" in result:
         return {
             "logs": [],

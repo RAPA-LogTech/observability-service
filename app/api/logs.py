@@ -94,6 +94,7 @@ def get_logs(
         level=level,
         env=env,
         cluster=cluster,
+        log_source=log_source,
         start_time=startTime,
         end_time=endTime,
         custom_tags=tags,
