@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 import ssl
 import time
 from typing import Any
@@ -348,7 +349,9 @@ def _amp_instant_query(settings: Settings, query: str) -> list[dict[str, Any]]:
 
 
 def get_latest_metric_points() -> list[dict[str, Any]]:
-    """스트리밍용: 각 서비스×메트릭의 현재값만 instant query로 조회"""
+    """스트리밍용: 각 서비스×메트릭의 현재값만 instant query로 조회 (병렬)"""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     settings = get_settings()
     if not _is_real_mode(settings) or not settings.amp_endpoint:
         return []
@@ -366,33 +369,85 @@ def get_latest_metric_points() -> list[dict[str, Any]]:
     ]
 
     now_ms = int(time.time() * 1000)
+    tasks = [
+        (svc, spec)
+        for svc in services
+        for spec in metric_specs
+    ]
+
+    def _fetch(svc: str, spec: dict) -> dict[str, Any] | None:
+        query = spec["query"].replace("$service", svc)
+        result = _amp_instant_query(settings, query)
+        if not result:
+            return None
+        try:
+            value = float(result[0]["value"][1])
+        except (KeyError, IndexError, ValueError, TypeError):
+            return None
+        return {"id": f"{svc}_{spec['suffix']}", "ts": now_ms, "value": value}
+
     points: list[dict[str, Any]] = []
-    for svc in services:
-        for spec in metric_specs:
-            query = spec["query"].replace("$service", svc)
-            result = _amp_instant_query(settings, query)
-            if not result:
-                continue
-            try:
-                value = float(result[0]["value"][1])
-            except (KeyError, IndexError, ValueError, TypeError):
-                continue
-            points.append({"id": f"{svc}_{spec['suffix']}", "ts": now_ms, "value": value})
+    with ThreadPoolExecutor(max_workers=min(len(tasks), 10)) as executor:
+        futures = {executor.submit(_fetch, svc, spec): (svc, spec) for svc, spec in tasks}
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                points.append(result)
     return points
-    if not series:
+
+
+def list_service_health() -> list[dict[str, Any]]:
+    """서비스별 에러율 + 환경(dev/prod) 목록 반환.
+    _amp_list_services와 동일한 서비스 목록 기준.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    settings = get_settings()
+    if not _is_real_mode(settings) or not settings.amp_endpoint:
         return []
 
-    values = series[0].get("values", [])
-    points: list[dict[str, Any]] = []
-    for item in values:
-        if not isinstance(item, list) or len(item) != 2:
-            continue
-        ts, value = item
+    jobs = _amp_list_jobs(settings)
+    if not jobs:
+        return []
+
+    # job → {service: {envs, jobs}} — _amp_list_services와 동일한 svc 추출 로직
+    service_meta: dict[str, dict[str, Any]] = {}
+    for job in jobs:
+        svc = job.split("/")[-1] if "/" in job else job
+        env = _parse_env_from_job(job)
+        if svc not in service_meta:
+            service_meta[svc] = {"envs": set(), "jobs": []}
+        service_meta[svc]["envs"].add(env)
+        service_meta[svc]["jobs"].append(job)
+
+    def _fetch_error_rate(svc: str, svc_jobs: list[str]) -> tuple[str, float]:
+        job_pattern = "|".join(re.escape(j) for j in svc_jobs)
+        query = f'app_http_server_error_ratio_5m{{job=~"{job_pattern}"}}'
+        result = _amp_instant_query(settings, query)
         try:
-            points.append({"ts": int(float(ts) * 1000), "value": float(value)})
-        except (TypeError, ValueError):
-            continue
-    return points
+            value = float(result[0]["value"][1]) if result else 0.0
+        except (KeyError, IndexError, ValueError, TypeError):
+            value = 0.0
+        return svc, value
+
+    error_rates: dict[str, float] = {}
+    with ThreadPoolExecutor(max_workers=min(len(service_meta), 10)) as executor:
+        futures = {
+            executor.submit(_fetch_error_rate, svc, meta["jobs"]): svc
+            for svc, meta in service_meta.items()
+        }
+        for future in as_completed(futures):
+            svc, rate = future.result()
+            error_rates[svc] = rate
+
+    return [
+        {
+            "service": svc,
+            "envs": sorted(service_meta[svc]["envs"]),
+            "error_rate": error_rates.get(svc, 0.0),
+        }
+        for svc in sorted(service_meta)
+    ]
 
 
 def get_data_source_name() -> str:
@@ -654,7 +709,8 @@ def list_logs(
     return {"logs": logs, "total": max(total_value, len(logs))}
 
 
-def _amp_list_services(settings: Settings) -> list[str]:
+def _amp_list_jobs(settings: Settings) -> list[str]:
+    """AMP job label 원본 목록 반환"""
     if not settings.amp_endpoint:
         return []
     workspace_base = _normalize_amp_endpoint_for_query(settings.amp_endpoint)
@@ -663,21 +719,39 @@ def _amp_list_services(settings: Settings) -> list[str]:
         request = _make_sigv4_request("GET", url)
         with urlopen(request, timeout=settings.amp_timeout_seconds) as response:
             payload = json.loads(response.read().decode("utf-8"))
-            # job 형식: "namespace/service" → service명만 추출, 중복 제거
-            jobs = payload.get("data", [])
-            seen: set[str] = set()
-            services: list[str] = []
-            for job in jobs:
-                svc = job.split("/")[-1] if "/" in job else job
-                if svc not in seen:
-                    seen.add(svc)
-                    services.append(svc)
-            return services
+            return payload.get("data", [])
     except Exception:
         return []
 
 
+def _parse_env_from_job(job: str) -> str:
+    parts = job.split("/")
+    candidate = parts[0].lower() if len(parts) > 1 else parts[0].lower()
+    for token in (candidate, job.lower()):
+        if "prod" in token:
+            return "prod"
+        if "dev" in token or "development" in token:
+            return "dev"
+        if "staging" in token or "stage" in token:
+            return "staging"
+    return "prod"
+
+
+def _amp_list_services(settings: Settings) -> list[str]:
+    jobs = _amp_list_jobs(settings)
+    seen: set[str] = set()
+    services: list[str] = []
+    for job in jobs:
+        svc = job.split("/")[-1] if "/" in job else job
+        if svc not in seen:
+            seen.add(svc)
+            services.append(svc)
+    return services
+
+
 def list_metrics(service: str | None = None, start: int | None = None, end: int | None = None) -> list[dict] | dict[str, Any]:
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     settings = get_settings()
     if not _is_real_mode(settings):
         return []
@@ -689,10 +763,9 @@ def list_metrics(service: str | None = None, start: int | None = None, end: int 
         return []
 
     now = int(time.time())
-    # 기본값: 최근 15분
     end = end or now
-    start = start or (end - 900)
-    step = max(15, settings.amp_step_seconds)
+    start = start or (end - 60)
+    step = max(60, settings.amp_step_seconds)
 
     metric_specs = [
         {"suffix": "request_rate", "unit": "req/s",  "query": settings.amp_throughput_query},
@@ -702,30 +775,48 @@ def list_metrics(service: str | None = None, start: int | None = None, end: int 
         {"suffix": "memory_usage", "unit": "%",       "query": settings.amp_memory_query},
     ]
 
-    series_list: list[dict[str, Any]] = []
-    for svc in services:
-        for spec in metric_specs:
-            query = spec["query"].replace("$service", svc)
-            result = _amp_query_range(settings, query, start, end, step)
+    tasks = [(svc, spec) for svc in services for spec in metric_specs]
+
+    def _fetch(svc: str, spec: dict) -> tuple[str, dict, list]:
+        query = spec["query"].replace("$service", svc)
+        return svc, spec, _amp_query_range(settings, query, start, end, step)
+
+    results: dict[tuple, list] = {}
+    first_error: dict[str, Any] | None = None
+
+    with ThreadPoolExecutor(max_workers=min(len(tasks), 10)) as executor:
+        futures = {executor.submit(_fetch, svc, spec): (svc, spec) for svc, spec in tasks}
+        for future in as_completed(futures):
+            svc, spec, result = future.result()
             if result and isinstance(result[0], dict) and "__error__" in result[0]:
-                return {"__error__": str(result[0].get("__error__")), "__status__": int(result[0].get("__status__", 502))}
-            values = result[0].get("values", []) if result else []
-            points = []
-            for item in values:
-                if isinstance(item, list) and len(item) == 2:
-                    try:
-                        points.append({"ts": int(float(item[0]) * 1000), "value": float(item[1])})
-                    except (TypeError, ValueError):
-                        pass
-            if not points:
+                if first_error is None:
+                    first_error = result[0]
                 continue
-            series_list.append({
-                "id": f"{svc}_{spec['suffix']}",
-                "name": f"{svc}_{spec['suffix']}",
-                "unit": spec["unit"],
-                "service": svc,
-                "points": points,
-            })
+            results[(svc, spec["suffix"])] = result
+
+    if first_error and not results:
+        return {"__error__": str(first_error.get("__error__")), "__status__": int(first_error.get("__status__", 502))}
+
+    series_list: list[dict[str, Any]] = []
+    for svc, spec in tasks:
+        result = results.get((svc, spec["suffix"]), [])
+        values = result[0].get("values", []) if result else []
+        points = []
+        for item in values:
+            if isinstance(item, list) and len(item) == 2:
+                try:
+                    points.append({"ts": int(float(item[0]) * 1000), "value": float(item[1])})
+                except (TypeError, ValueError):
+                    pass
+        if not points:
+            continue
+        series_list.append({
+            "id": f"{svc}_{spec['suffix']}",
+            "name": f"{svc}_{spec['suffix']}",
+            "unit": spec["unit"],
+            "service": svc,
+            "points": points,
+        })
 
     return series_list
 

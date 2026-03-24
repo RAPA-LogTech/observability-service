@@ -4,7 +4,7 @@ import time
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from ..services.observability_service import list_metrics
+from ..services.observability_service import list_metrics, list_service_health
 from ..services.streaming_service import (
     encode_sse_event,
     ensure_stream_started,
@@ -18,13 +18,14 @@ router = APIRouter(prefix="/v1", tags=["metrics"])
 
 
 @router.get("/metrics")
-def get_metrics(
+async def get_metrics(
     service: str | None = None,
     start: int | None = None,
     end: int | None = None,
     limit: int | None = None,
 ) -> object:
-    result = list_metrics(service=service, start=start, end=end)
+    import asyncio
+    result = await asyncio.get_event_loop().run_in_executor(None, lambda: list_metrics(service=service, start=start, end=end))
     if isinstance(result, dict) and "__error__" in result:
         raise HTTPException(
             status_code=int(result.get("__status__", 502)),
@@ -33,6 +34,20 @@ def get_metrics(
     if limit is not None and isinstance(result, list):
         return result[:limit]
     return result
+
+
+@router.get("/metrics/health")
+async def get_metrics_health() -> list:
+    return await asyncio.get_event_loop().run_in_executor(None, list_service_health)
+
+
+@router.get("/metrics/services")
+def get_metric_services() -> list[str]:
+    from ..services.observability_service import _amp_list_services, get_settings, _is_real_mode
+    settings = get_settings()
+    if not _is_real_mode(settings) or not settings.amp_endpoint:
+        return []
+    return _amp_list_services(settings)
 
 
 @router.get("/metrics/backlog")

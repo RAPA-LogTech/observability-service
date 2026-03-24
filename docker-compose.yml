@@ -7,9 +7,9 @@ services:
     ports:
       - "8081:8081"
     environment:
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://43.201.197.105:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://3.39.122.12:4318
       - OPENSEARCH_URL=https://vpc-log-platform-dev-emru3vfn6thqsybe5qc7nndgga.ap-northeast-2.es.amazonaws.com
       - OPENSEARCH_USERNAME=admin
       - OPENSEARCH_PASSWORD=Fkvk1234!
-      - AMP_ENDPOINT=https://aps-workspaces.ap-northeast-2.amazonaws.com/workspaces/ws-7a9634a0-2c2c-46d1-a6fe-e79ccf8f6925/api/v1/query
+      - AMP_ENDPOINT=https://aps-workspaces.ap-northeast-2.amazonaws.com/workspaces/ws-96fd8790-3be8-4cea-9d38-a6e33e720b89/api/v1/query
       - ALLOWED_ORIGINS=http://localhost:3000
