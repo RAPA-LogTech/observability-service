@@ -110,22 +110,22 @@ def _normalize_to_millis(value: Any) -> int | None:
         if "T" in stripped or ("-" in stripped and ":" in stripped):
             try:
                 from datetime import datetime
-                # ISO8601 형식 파싱 (Z 접미사 제거)
                 dt_str = stripped.rstrip("Z")
+                # 소수점 이하 6자리 초과(나노초 등) → 마이크로초로 truncate
                 if "." in dt_str:
+                    int_part, frac_part = dt_str.split(".", 1)
+                    dt_str = f"{int_part}.{frac_part[:6]}"
                     dt = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%S.%f")
                 else:
                     dt = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%S")
                 return int(dt.timestamp() * 1000)
             except (ValueError, ImportError):
                 pass
-            # float 파싱 시도
             try:
                 raw = float(stripped)
             except ValueError:
                 return None
         else:
-            # 숫자 문자열
             try:
                 raw = float(stripped)
             except ValueError:
@@ -821,6 +821,142 @@ def list_metrics(service: str | None = None, start: int | None = None, end: int 
     return series_list
 
 
+def _parse_span_doc(source: dict[str, Any], doc: dict[str, Any]) -> dict[str, Any] | None:
+    """OpenSearch span document를 정규화된 span dict로 변환."""
+    trace_id = str(source.get("traceId") or "")
+    if not trace_id:
+        return None
+
+    span_id = str(source.get("spanId") or doc.get("_id") or "")
+    parent_span_id = source.get("parentSpanId") or ""
+
+    resource = source.get("resource")
+    service_name = "unknown"
+    if isinstance(resource, dict):
+        # resource dict 안에 "service.name" dot-key가 있는 경우 (OTel Collector 기본 형식)
+        sn = resource.get("service.name")
+        if not sn and isinstance(resource.get("service"), dict):
+            sn = resource["service"].get("name")
+        if sn:
+            service_name = str(sn)
+    if service_name == "unknown":
+        sn = _extract_nested(source, "service.name", "service")
+        if sn:
+            service_name = str(sn)
+    operation = str(source.get("name") or "unknown")
+    kind = str(source.get("kind") or "")
+
+    start_ms = _normalize_to_millis(source.get("startTime"))
+    end_ms = _normalize_to_millis(source.get("endTime"))
+    if start_ms and end_ms and end_ms > start_ms:
+        duration = end_ms - start_ms
+    else:
+        duration = 0
+    if not start_ms:
+        start_ms = int(time.time() * 1000)
+
+    status_obj = source.get("status")
+    status_code_str = "Unset"
+    if isinstance(status_obj, dict):
+        status_code_str = str(status_obj.get("code") or "Unset")
+    elif isinstance(status_obj, str):
+        status_code_str = status_obj
+
+    if status_code_str.lower() == "error":
+        span_status = "error"
+    elif status_code_str.lower() == "ok":
+        span_status = "ok"
+    else:
+        span_status = "ok"
+
+    attrs = source.get("attributes") or {}
+    http_status = attrs.get("http.status_code")
+
+    tags: dict[str, Any] = {}
+    if isinstance(attrs, dict):
+        for k, v in attrs.items():
+            if k == "data_stream":
+                continue
+            tags[k] = v
+
+    resource = source.get("resource")
+    if isinstance(resource, dict):
+        for k, v in resource.items():
+            if k not in ("service.name",) and not isinstance(v, dict):
+                tags[f"resource.{k}"] = v
+
+    return {
+        "id": span_id,
+        "traceId": trace_id,
+        "parentSpanId": parent_span_id if parent_span_id else None,
+        "service": service_name,
+        "operation": operation,
+        "kind": kind,
+        "startTime": start_ms,
+        "duration": duration,
+        "status": span_status,
+        "httpStatusCode": int(http_status) if http_status is not None else None,
+        "tags": tags,
+    }
+
+
+def _group_spans_into_traces(spans: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """span 목록을 traceId별로 그룹핑하여 Trace 객체 목록으로 변환."""
+    from collections import defaultdict
+
+    trace_map: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for span in spans:
+        trace_map[span["traceId"]].append(span)
+
+    traces: list[dict[str, Any]] = []
+    for trace_id, trace_spans in trace_map.items():
+        sorted_spans = sorted(trace_spans, key=lambda s: s["startTime"])
+
+        root_span = None
+        for s in sorted_spans:
+            if not s.get("parentSpanId"):
+                root_span = s
+                break
+        if not root_span:
+            root_span = sorted_spans[0]
+
+        trace_start = min(s["startTime"] for s in sorted_spans)
+        trace_end = max(s["startTime"] + s["duration"] for s in sorted_spans)
+        trace_duration = max(trace_end - trace_start, 0)
+
+        has_error = any(s["status"] == "error" for s in sorted_spans)
+        http_code = root_span.get("httpStatusCode")
+        if http_code is None:
+            for s in sorted_spans:
+                if s.get("httpStatusCode") is not None:
+                    http_code = s["httpStatusCode"]
+                    break
+
+        if has_error:
+            trace_status = "error"
+            if http_code is None:
+                http_code = 500
+        else:
+            trace_status = "ok"
+            if http_code is None:
+                http_code = 200
+
+        traces.append({
+            "id": trace_id,
+            "service": root_span["service"],
+            "operation": root_span["operation"],
+            "startTime": trace_start,
+            "duration": trace_duration,
+            "status": trace_status,
+            "status_code": http_code,
+            "spans": sorted_spans,
+            "tags": root_span.get("tags", {}),
+        })
+
+    traces.sort(key=lambda t: t["startTime"], reverse=True)
+    return traces
+
+
 def list_traces(
     service: str | None = None,
     status: str | None = None,
@@ -847,13 +983,25 @@ def list_traces(
 
     filters: list[dict[str, Any]] = []
     if service:
-        filters.append({"term": {"service.keyword": service}})
+        filters.append(
+            {
+                "bool": {
+                    "should": [
+                        {"term": {"resource.service.name.keyword": service}},
+                        {"term": {"resource.service.name": service}},
+                    ],
+                    "minimum_should_match": 1,
+                }
+            }
+        )
 
+    # span 단위 document를 traceId별로 그룹핑하여 조회
+    # 최대 limit개 trace를 얻기 위해 충분한 span을 가져옴
+    fetch_size = max(1, min(limit * 10, 5000))
     body: dict[str, Any] = {
-        "from": max(0, offset),
-        "size": max(1, min(limit, 500)),
-        "sort": [{"startTime": {"order": "desc", "unmapped_type": "long"}}],
-        "query": {"bool": {"filter": filters}},
+        "size": fetch_size,
+        "sort": [{"startTime": {"order": "desc", "unmapped_type": "keyword"}}],
+        "query": {"bool": {"filter": filters}} if filters else {"match_all": {}},
     }
     result = _opensearch_search(settings, settings.opensearch_traces_index, body)
     if "__error__" in result:
@@ -867,70 +1015,54 @@ def list_traces(
     hits = result.get("hits", {})
     docs = hits.get("hits", []) if isinstance(hits, dict) else []
 
-    traces: list[dict[str, Any]] = []
+    all_spans: list[dict[str, Any]] = []
     for doc in docs:
         source = doc.get("_source", {}) if isinstance(doc, dict) else {}
         if not isinstance(source, dict):
             continue
+        span = _parse_span_doc(source, doc)
+        if span:
+            all_spans.append(span)
 
-        trace_id = str(
-            _extract_nested(source, "id", "traceId")
-            or source.get("traceId")
-            or source.get("resource", {}).get("traceId")
-            or doc.get("_id")
-            or ""
-        )
-        if not trace_id:
-            continue
-
-        spans_obj = source.get("spans")
-        spans: list[Any] = spans_obj if isinstance(spans_obj, list) else []
-        normalized_spans: list[dict[str, Any]] = []
-        for idx, span in enumerate(spans):
-            if not isinstance(span, dict):
-                continue
-            normalized_spans.append(
-                {
-                    "id": str(span.get("id") or f"{trace_id}-span-{idx+1}"),
-                    "traceId": trace_id,
-                    "parentSpanId": span.get("parentSpanId"),
-                    "service": str(span.get("service") or source.get("service") or "unknown"),
-                    "operation": str(span.get("operation") or span.get("name") or "operation"),
-                    "startTime": _normalize_to_millis(
-                        span.get("startTime") or source.get("startTime")
-                    ) or int(time.time() * 1000),
-                    "duration": _normalize_to_millis(span.get("duration")) or 0,
-                    "status": _safe_status(str(span.get("status") or source.get("status") or "ok")),
-                    "tags": span.get("tags") if isinstance(span.get("tags"), dict) else {},
-                }
-            )
-
-        status_value = _safe_status(str(source.get("status") or "ok"))
-        trace_item = {
-            "id": trace_id,
-            "service": str(
-                _extract_nested(source, "service.name", "service", "resource.service.name")
-                or "unknown"
-            ),
-            "operation": str(_extract_nested(source, "operation", "name") or "operation"),
-            "startTime": _normalize_to_millis(source.get("startTime")) or int(time.time() * 1000),
-            "duration": _normalize_to_millis(source.get("duration")) or 0,
-            "status": status_value,
-            "status_code": int(source.get("status_code") or (200 if status_value == "ok" else 500)),
-            "spans": normalized_spans,
-            "tags": source.get("tags") if isinstance(source.get("tags"), dict) else {},
-        }
-        traces.append(trace_item)
+    traces = _group_spans_into_traces(all_spans)
 
     if status:
-        traces = [item for item in traces if item.get("status") == status]
+        traces = [t for t in traces if t["status"] == status]
 
-    return {"traces": traces, "total": len(traces)}
+    total = len(traces)
+    traces = traces[offset:offset + limit]
+
+    return {"traces": traces, "total": total}
 
 
 def get_trace_detail(trace_id: str) -> dict | None:
-    traces = list_traces(limit=200, offset=0).get("traces", [])
-    for trace in traces:
-        if str(trace.get("id")) == trace_id:
-            return trace
-    return None
+    settings = get_settings()
+    if not _is_real_mode(settings) or not settings.opensearch_url or not settings.opensearch_traces_index:
+        return None
+
+    body: dict[str, Any] = {
+        "size": 1000,
+        "query": {"term": {"traceId": trace_id}},
+        "sort": [{"startTime": {"order": "asc", "unmapped_type": "keyword"}}],
+    }
+    result = _opensearch_search(settings, settings.opensearch_traces_index, body)
+    if "__error__" in result:
+        return None
+
+    hits = result.get("hits", {})
+    docs = hits.get("hits", []) if isinstance(hits, dict) else []
+
+    spans: list[dict[str, Any]] = []
+    for doc in docs:
+        source = doc.get("_source", {}) if isinstance(doc, dict) else {}
+        if not isinstance(source, dict):
+            continue
+        span = _parse_span_doc(source, doc)
+        if span:
+            spans.append(span)
+
+    if not spans:
+        return None
+
+    traces = _group_spans_into_traces(spans)
+    return traces[0] if traces else None
