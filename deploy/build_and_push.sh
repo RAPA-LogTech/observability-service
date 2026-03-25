@@ -4,7 +4,7 @@
 set -e
 
 IMAGE="gurururu/observability-service:latest"
-SERVER="ubuntu@3.39.122.12"
+SERVER="ubuntu@52.79.67.130"
 SSH_KEY="~/keys/logtech.pem"
 
 # 1. 빌드 + 푸시 동시에
