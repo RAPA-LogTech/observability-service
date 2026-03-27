@@ -979,6 +979,8 @@ def list_traces(
     status: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    start_time: int | None = None,
+    end_time: int | None = None,
 ) -> dict:
     settings = get_settings()
     if not _is_real_mode(settings):
@@ -998,7 +1000,12 @@ def list_traces(
             "__status__": 503,
         }
 
+    now_ms = int(time.time() * 1000)
+    resolved_end = end_time if end_time is not None else now_ms
+    resolved_start = start_time if start_time is not None else (resolved_end - 10 * 60 * 1000)
+
     filters: list[dict[str, Any]] = []
+    filters.append({"range": {"startTime": {"gte": resolved_start, "lte": resolved_end}}})
     if service:
         filters.append(
             {
@@ -1018,7 +1025,7 @@ def list_traces(
     body: dict[str, Any] = {
         "size": fetch_size,
         "sort": [{"startTime": {"order": "desc", "unmapped_type": "keyword"}}],
-        "query": {"bool": {"filter": filters}} if filters else {"match_all": {}},
+        "query": {"bool": {"filter": filters}},
     }
     result = _opensearch_search(settings, settings.opensearch_traces_index, body)
     if "__error__" in result:
