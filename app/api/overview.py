@@ -31,7 +31,8 @@ def _amp_overview(settings) -> tuple[dict, list[dict]]:
         env = _parse_env_from_job(job)
         if svc not in svc_meta:
             svc_meta[svc] = {"envs": set(), "jobs": []}
-        svc_meta[svc]["envs"].add(env)
+        if env:
+            svc_meta[svc]["envs"].add(env)
         svc_meta[svc]["jobs"].append(job)
 
     def _fetch(svc: str, meta: dict) -> dict:
@@ -119,10 +120,10 @@ def _opensearch_overview(settings) -> tuple[dict, list[dict]]:
         total_errors += err_count
         services.append({
             "service": b["key"],
-            "envs": sorted(envs) if envs else ["prod"],
+            "envs": sorted(envs),
             "error_rate": round(rate, 4),
             "latency_p95": 0,
-            "throughput": round(doc_count / 300, 2),  # 5분간 로그 수 → req/s 근사
+            "throughput": round(doc_count / 300, 2),
         })
 
     services.sort(key=lambda s: s["service"])

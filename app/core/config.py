@@ -24,11 +24,15 @@ class Settings(BaseSettings):
     amp_endpoint: str | None = None
     amp_timeout_seconds: float = 8.0
     amp_step_seconds: int = 60
-    amp_error_rate_query: str = 'app_http_server_error_ratio_5m{job=~".+/$service"}'
+    amp_error_rate_query: str = '(app_http_server_4xx_errors_5m{job=~".+/$service"} + app_http_server_5xx_errors_5m{job=~".+/$service"}) / (app_http_server_requests_5m{job=~".+/$service"} > 0) * 100 or vector(0)'
     amp_latency_p95_query: str = 'app_http_server_latency_p95_5m{job=~".+/$service"} * 1000'
     amp_throughput_query: str = 'app_http_server_requests_5m{job=~".+/$service"}'
     amp_cpu_query: str = 'app_container_cpu_utilization_avg_5m{container_name=~".*$service.*"} * 100'
     amp_memory_query: str = 'app_container_memory_utilization_avg_5m{container_name=~".*$service.*"} * 100'
+
+    # RDS CloudWatch
+    rds_instance_identifier: str | None = None
+    aws_region: str = "ap-northeast-2"
 
     # Comma-separated origins in .env
     allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"

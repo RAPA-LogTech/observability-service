@@ -47,11 +47,13 @@ def _is_real_mode(settings: Settings) -> bool:
     return bool(settings.opensearch_url or settings.amp_endpoint)
 
 
-def _safe_env(value: str | None) -> str:
-    candidate = (value or "prod").lower()
+def _safe_env(value: str | None) -> str | None:
+    if not value:
+        return None
+    candidate = value.lower()
     if candidate in {"prod", "staging", "dev"}:
         return candidate
-    return "prod"
+    return None
 
 
 def _safe_level(value: str | None) -> str:
@@ -413,58 +415,80 @@ def get_latest_metric_points() -> list[dict[str, Any]]:
     return points
 
 
-def list_service_health() -> list[dict[str, Any]]:
-    """서비스별 에러율 + 환경(dev/prod) 목록 반환.
-    _amp_list_services와 동일한 서비스 목록 기준.
-    """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+def _cloudwatch_rds_metrics(settings: Settings) -> dict[str, float]:
+    """RDS CPUUtilization, DatabaseConnections 최근 5분 평균 반환."""
+    if not settings.rds_instance_identifier:
+        return {}
+    import os
+    import boto3
+    from datetime import datetime, timezone, timedelta
 
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or settings.aws_region
+    cw = boto3.client("cloudwatch", region_name=region)
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(minutes=10)
+    dimensions = [{"Name": "DBInstanceIdentifier", "Value": settings.rds_instance_identifier}]
+
+    queries = [
+        {"Id": "cpu",  "MetricStat": {"Metric": {"Namespace": "AWS/RDS", "MetricName": "CPUUtilization",      "Dimensions": dimensions}, "Period": 300, "Stat": "Average"}},
+        {"Id": "conn", "MetricStat": {"Metric": {"Namespace": "AWS/RDS", "MetricName": "DatabaseConnections", "Dimensions": dimensions}, "Period": 300, "Stat": "Average"}},
+    ]
+    try:
+        resp = cw.get_metric_data(MetricDataQueries=queries, StartTime=start, EndTime=end)
+        result: dict[str, float] = {}
+        for r in resp.get("MetricDataResults", []):
+            values = r.get("Values", [])
+            if values:
+                result[r["Id"]] = values[0]
+        return result
+    except Exception as e:
+        logger.error("CloudWatch RDS query failed: %s", e)
+        return {}
+
+
+def list_service_health() -> list[dict[str, Any]]:
+    """deployment_environment label 기준으로 서비스×환경 단위 에러율 반환."""
     settings = get_settings()
     if not _is_real_mode(settings) or not settings.amp_endpoint:
         return []
 
-    jobs = _amp_list_jobs(settings)
-    if not jobs:
+    result = _amp_instant_query(settings, '(app_http_server_4xx_errors_5m + app_http_server_5xx_errors_5m) / (app_http_server_requests_5m > 0) * 100')
+    if not result:
         return []
 
-    # job → {service: {envs, jobs}} — _amp_list_services와 동일한 svc 추출 로직
-    service_meta: dict[str, dict[str, Any]] = {}
-    for job in jobs:
+    seen: set[tuple[str, str]] = set()
+    rows: list[dict[str, Any]] = []
+    for item in result:
+        metric = item.get("metric", {})
+        job = metric.get("job", "")
         svc = job.split("/")[-1] if "/" in job else job
-        env = _parse_env_from_job(job)
-        if svc not in service_meta:
-            service_meta[svc] = {"envs": set(), "jobs": []}
-        service_meta[svc]["envs"].add(env)
-        service_meta[svc]["jobs"].append(job)
-
-    def _fetch_error_rate(svc: str, svc_jobs: list[str]) -> tuple[str, float]:
-        job_pattern = "|".join(re.escape(j) for j in svc_jobs)
-        query = f'app_http_server_error_ratio_5m{{job=~"{job_pattern}"}}'
-        result = _amp_instant_query(settings, query)
+        if not svc:
+            svc = metric.get("service", "")
+        env = metric.get("deployment_environment") or metric.get("environment")
+        if not svc or not env:
+            continue
+        key = (svc, env)
+        if key in seen:
+            continue
+        seen.add(key)
         try:
-            value = float(result[0]["value"][1]) if result else 0.0
+            rate = float(item["value"][1])
         except (KeyError, IndexError, ValueError, TypeError):
-            value = 0.0
-        return svc, value
+            rate = 0.0
+        rows.append({"service": svc, "env": env, "error_rate": rate})
 
-    error_rates: dict[str, float] = {}
-    with ThreadPoolExecutor(max_workers=min(len(service_meta), 10)) as executor:
-        futures = {
-            executor.submit(_fetch_error_rate, svc, meta["jobs"]): svc
-            for svc, meta in service_meta.items()
-        }
-        for future in as_completed(futures):
-            svc, rate = future.result()
-            error_rates[svc] = rate
+    rows.sort(key=lambda r: (r["service"], r["env"]))
 
-    return [
-        {
-            "service": svc,
-            "envs": sorted(service_meta[svc]["envs"]),
-            "error_rate": error_rates.get(svc, 0.0),
-        }
-        for svc in sorted(service_meta)
-    ]
+    rds = _cloudwatch_rds_metrics(settings)
+    if rds:
+        rows.append({
+            "service": "rds",
+            "error_rate": 0.0,
+            "rds_cpu": rds.get("cpu"),
+            "rds_connections": rds.get("conn"),
+        })
+
+    return rows
 
 
 def get_data_source_name() -> str:
@@ -710,7 +734,7 @@ def list_logs(
                 "source": doc.get("_index", ""),  # 로그 소스 (logs-app, logs-host 등)
                 "service": str(service_val),
                 "traceId": str(trace_id),
-                "env": _safe_env(str(_extract_nested(source, "env", "environment") or "prod")),
+                "env": _safe_env(_extract_nested(source, "resource.deployment.environment", "deployment.environment")),
                 "level": _safe_level(
                     str(
                         _extract_nested(source, "level", "severity", "severity_text", "severityText")
@@ -741,7 +765,7 @@ def _amp_list_jobs(settings: Settings) -> list[str]:
         return []
 
 
-def _parse_env_from_job(job: str) -> str:
+def _parse_env_from_job(job: str) -> str | None:
     parts = job.split("/")
     candidate = parts[0].lower() if len(parts) > 1 else parts[0].lower()
     for token in (candidate, job.lower()):
@@ -751,7 +775,7 @@ def _parse_env_from_job(job: str) -> str:
             return "dev"
         if "staging" in token or "stage" in token:
             return "staging"
-    return "prod"
+    return None
 
 
 def _amp_list_services(settings: Settings) -> list[str]:

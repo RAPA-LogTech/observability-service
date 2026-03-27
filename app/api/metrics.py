@@ -41,6 +41,17 @@ async def get_metrics_health() -> list:
     return await asyncio.get_event_loop().run_in_executor(None, list_service_health)
 
 
+@router.get("/metrics/debug-labels")
+def get_debug_labels(metric: str = "app_http_server_5xx_error_ratio_5m") -> list:
+    """AMP 메트릭의 실제 label 구조 확인용 임시 엔드포인트"""
+    from ..services.observability_service import _amp_instant_query, get_settings, _is_real_mode
+    settings = get_settings()
+    if not _is_real_mode(settings) or not settings.amp_endpoint:
+        return []
+    result = _amp_instant_query(settings, metric)
+    return [item.get("metric", {}) for item in result]
+
+
 @router.get("/metrics/services")
 def get_metric_services() -> list[str]:
     from ..services.observability_service import _amp_list_services, get_settings, _is_real_mode

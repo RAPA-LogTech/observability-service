@@ -12,3 +12,5 @@ services:
       - OPENSEARCH_PASSWORD=Fkvk1234!
       - AMP_ENDPOINT=https://aps-workspaces.ap-northeast-2.amazonaws.com/workspaces/ws-82288d50-86e5-4488-8556-9dbf0058ec59/api/v1/query
       - ALLOWED_ORIGINS=http://localhost:3000
+      - RDS_INSTANCE_IDENTIFIER=log-platform-dev-customer-postgres
+      - AWS_REGION=ap-northeast-2
