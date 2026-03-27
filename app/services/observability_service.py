@@ -15,10 +15,32 @@ import boto3
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 
+import requests as _requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 from ..core.config import Settings, get_settings
 
-# Use uvicorn's logger so info logs are visible in foreground server output.
 logger = logging.getLogger("uvicorn.error")
+
+# OpenSearch connection pool — 모듈 레벨 싱글턴
+_opensearch_session: _requests.Session | None = None
+
+def _get_opensearch_session() -> _requests.Session:
+    global _opensearch_session
+    if _opensearch_session is None:
+        session = _requests.Session()
+        adapter = HTTPAdapter(
+            pool_connections=4,
+            pool_maxsize=16,
+            max_retries=Retry(total=1, backoff_factor=0.3),
+        )
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        _opensearch_session = session
+    return _opensearch_session
+
+
 
 
 def _normalize_amp_endpoint_for_query(endpoint: str) -> str:
@@ -56,11 +78,21 @@ def _safe_env(value: str | None) -> str | None:
     return None
 
 
-def _safe_level(value: str | None) -> str:
-    candidate = (value or "INFO").upper()
+def _safe_level(value: str | None) -> str | None:
+    if not value:
+        return None
+    candidate = value.upper()
     if candidate in {"INFO", "WARN", "ERROR", "DEBUG"}:
         return candidate
-    return "INFO"
+    if "ERROR" in candidate or "ERR" in candidate:
+        return "ERROR"
+    if "WARN" in candidate:
+        return "WARN"
+    if "DEBUG" in candidate:
+        return "DEBUG"
+    if "INFO" in candidate:
+        return "INFO"
+    return None
 
 
 def _safe_status(value: str | None) -> str:
@@ -271,45 +303,34 @@ def _opensearch_search(settings: Settings, index: str, body: dict[str, Any]) -> 
 
     url = f"{settings.opensearch_url.rstrip('/')}/{index}/_search"
     logger.info("OpenSearch request URL: %s", url)
-    headers = _opensearch_headers(settings)
+
     auth = _opensearch_auth(settings)
-    if auth:
-        logger.info("OpenSearch auth: username=%s password=%s", auth[0], auth[1])
-        token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode("utf-8")).decode("ascii")
-        headers["Authorization"] = f"Basic {token}"
-    elif settings.opensearch_api_key:
-        logger.info("OpenSearch auth: api_key is set")
-    else:
-        logger.info("OpenSearch auth: no credentials configured")
+    headers = {"Content-Type": "application/json"}
+    if settings.opensearch_api_key:
+        headers["Authorization"] = f"ApiKey {settings.opensearch_api_key}"
 
-    request = Request(
-        url=url,
-        data=json.dumps(body).encode("utf-8"),
-        headers=headers,
-        method="POST",
-    )
-
-    ssl_context: ssl.SSLContext | None = None
-    if url.lower().startswith("https://"):
-        if settings.opensearch_verify_tls:
-            ssl_context = ssl.create_default_context()
-        else:
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
+    verify = settings.opensearch_verify_tls
+    session = _get_opensearch_session()
 
     try:
-        with urlopen(request, timeout=settings.opensearch_timeout_seconds, context=ssl_context) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        return {"__error__": f"OpenSearch request failed: HTTP {exc.code}", "__status__": int(exc.code)}
-    except URLError as exc:
-        reason = getattr(exc, "reason", "connection error")
-        return {"__error__": f"OpenSearch request failed: {reason}", "__status__": 502}
-    except TimeoutError:
+        resp = session.post(
+            url,
+            json=body,
+            headers=headers,
+            auth=auth,
+            verify=verify,
+            timeout=settings.opensearch_timeout_seconds,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except _requests.exceptions.HTTPError as exc:
+        return {"__error__": f"OpenSearch request failed: HTTP {exc.response.status_code}", "__status__": exc.response.status_code}
+    except _requests.exceptions.Timeout:
         return {"__error__": "OpenSearch request timed out", "__status__": 504}
-    except ValueError:
-        return {"__error__": "OpenSearch response is not valid JSON", "__status__": 502}
+    except _requests.exceptions.ConnectionError as exc:
+        return {"__error__": f"OpenSearch request failed: {exc}", "__status__": 502}
+    except Exception as exc:
+        return {"__error__": f"OpenSearch request failed: {exc}", "__status__": 502}
 
 
 def _amp_query_range(
@@ -736,10 +757,7 @@ def list_logs(
                 "traceId": str(trace_id),
                 "env": _safe_env(_extract_nested(source, "resource.deployment.environment", "deployment.environment")),
                 "level": _safe_level(
-                    str(
-                        _extract_nested(source, "level", "severity", "severity_text", "severityText")
-                        or "INFO"
-                    )
+                    _extract_nested(source, "level", "severity", "severity_text", "severityText")
                 ),
                 "message": str(message or ""),
                 "metadata": metadata,
@@ -809,11 +827,13 @@ def list_metrics(service: str | None = None, start: int | None = None, end: int 
     step = max(60, settings.amp_step_seconds)
 
     metric_specs = [
-        {"suffix": "request_rate", "unit": "req/s",  "query": settings.amp_throughput_query},
-        {"suffix": "error_rate",   "unit": "%",       "query": settings.amp_error_rate_query},
-        {"suffix": "latency_p95",  "unit": "ms",      "query": settings.amp_latency_p95_query},
-        {"suffix": "cpu_usage",    "unit": "%",       "query": settings.amp_cpu_query},
-        {"suffix": "memory_usage", "unit": "%",       "query": settings.amp_memory_query},
+        {"suffix": "request_rate", "unit": "req/s", "query": settings.amp_throughput_query},
+        {"suffix": "error_rate",   "unit": "%",     "query": settings.amp_error_rate_query},
+        {"suffix": "4xx_ratio",    "unit": "%",     "query": settings.amp_4xx_ratio_query},
+        {"suffix": "5xx_ratio",    "unit": "%",     "query": settings.amp_5xx_ratio_query},
+        {"suffix": "latency_p95",  "unit": "ms",    "query": settings.amp_latency_p95_query},
+        {"suffix": "cpu_usage",    "unit": "%",     "query": settings.amp_cpu_query},
+        {"suffix": "memory_usage", "unit": "%",     "query": settings.amp_memory_query},
     ]
 
     tasks = [(svc, spec) for svc in services for spec in metric_specs]

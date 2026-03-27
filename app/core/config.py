@@ -15,20 +15,22 @@ class Settings(BaseSettings):
     opensearch_app_logs_index: str = "logs-app"  # logs-app만 명확히 조회할 때
     opensearch_host_logs_index: str = "logs-host"  # logs-host만 명확히 조회할 때
     opensearch_traces_index: str | None = "traces-*"
-    opensearch_timeout_seconds: float = 8.0
+    opensearch_timeout_seconds: float = 20.0
     opensearch_verify_tls: bool = True
     opensearch_username: str | None = None
     opensearch_password: str | None = None
     opensearch_api_key: str | None = None
 
     amp_endpoint: str | None = None
-    amp_timeout_seconds: float = 8.0
+    amp_timeout_seconds: float = 20.0
     amp_step_seconds: int = 60
-    amp_error_rate_query: str = '(app_http_server_4xx_errors_5m{job=~".+/$service"} + app_http_server_5xx_errors_5m{job=~".+/$service"}) / (app_http_server_requests_5m{job=~".+/$service"} > 0) * 100 or vector(0)'
+    amp_error_rate_query: str = '(app_http_server_4xx_errors_5m{job=~".+/$service"} + app_http_server_5xx_errors_5m{job=~".+/$service"}) / (app_http_server_requests_5m{job=~".+/$service"} > 0) * 100'
+    amp_4xx_ratio_query: str = 'app_http_server_4xx_error_ratio_5m{job=~".+/$service"}'
+    amp_5xx_ratio_query: str = 'app_http_server_5xx_error_ratio_5m{job=~".+/$service"}'
     amp_latency_p95_query: str = 'app_http_server_latency_p95_5m{job=~".+/$service"} * 1000'
     amp_throughput_query: str = 'app_http_server_requests_5m{job=~".+/$service"}'
     amp_cpu_query: str = 'app_container_cpu_utilization_avg_5m{container_name=~".*$service.*"} * 100'
-    amp_memory_query: str = 'app_container_memory_utilization_avg_5m{container_name=~".*$service.*"} * 100'
+    amp_memory_query: str = 'app_container_memory_utilization_avg_5m{container_name=~".*$service.*"}'
 
     # RDS CloudWatch
     rds_instance_identifier: str | None = None
