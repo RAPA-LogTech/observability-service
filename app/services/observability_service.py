@@ -228,20 +228,37 @@ def _extract_log_timestamp(source: dict[str, Any], doc: dict[str, Any]) -> str:
 
 def _make_sigv4_request(method: str, url: str) -> Request:
     """
-    AWS SigV4 인증 헤더를 붙인 urllib.request.Request 객체 생성 (exec에서 잘 되는 코드와 완전히 동일하게)
+    AWS SigV4 인증 헤더를 붙인 urllib.request.Request 객체 생성
+    컨테이너 환경에서 IMDSv2 hop limit 문제를 우회하기 위해
+    환경변수 자격증명을 우선 사용하고, 없으면 IMDSv2로 fallback
     """
-    import boto3
-    from botocore.auth import SigV4Auth
-    from botocore.awsrequest import AWSRequest
+    import os
 
-    session = boto3.Session()
-    creds = session.get_credentials().get_frozen_credentials()
-    region = "ap-northeast-2"
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "ap-northeast-2"
+
+    # 환경변수에 자격증명이 있으면 직접 사용 (컨테이너 환경 우선)
+    access_key = os.environ.get("AWS_ACCESS_KEY_ID")
+    secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    session_token = os.environ.get("AWS_SESSION_TOKEN")
+
+    if access_key and secret_key:
+        from botocore.credentials import Credentials, RefreshableCredentials
+        creds = Credentials(
+            access_key=access_key,
+            secret_key=secret_key,
+            token=session_token,
+        )
+    else:
+        # EC2 IAM Role (IMDSv2) — hop limit >= 2 필요
+        session = boto3.Session(region_name=region)
+        resolved = session.get_credentials()
+        if resolved is None:
+            raise RuntimeError("AWS credentials not found. Set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY or ensure EC2 IMDSv2 hop limit >= 2.")
+        creds = resolved.get_frozen_credentials()
+
     aws_req = AWSRequest(method=method, url=url)
     SigV4Auth(creds, "aps", region).add_auth(aws_req)
     headers = dict(aws_req.headers)
-    # exec에서 잘 되는 코드와 완전히 동일하게 User-Agent, Host 등 헤더를 그대로 사용
-    # 필요시 추가 헤더를 여기에 삽입
     logger.info(f"[SIGV4 DEBUG] url={url} region={region} headers={headers}")
     return Request(url=url, method=method, headers=headers)
 

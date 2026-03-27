@@ -4,8 +4,8 @@
 set -e
 
 IMAGE="gurururu/observability-service:latest"
-SERVER="ubuntu@52.79.67.130"
-SSH_KEY="~/keys/logtech.pem"
+SERVER="ubuntu@3.37.198.240"
+SSH_KEY="~/keys/log-platform-key-v5.pem"
 
 # 1. 빌드 + 푸시 동시에
 echo "[1/3] Docker 이미지 빌드 및 푸시 (linux/amd64)..."
