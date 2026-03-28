@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import json
 import logging
-import re
 import ssl
 import time
 from typing import Any
@@ -12,10 +11,9 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 import boto3
+import requests as _requests
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
-
-import requests as _requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -276,7 +274,7 @@ def _make_sigv4_request(method: str, url: str) -> Request:
     session_token = os.environ.get("AWS_SESSION_TOKEN")
 
     if access_key and secret_key:
-        from botocore.credentials import Credentials, RefreshableCredentials
+        from botocore.credentials import Credentials
         creds = Credentials(
             access_key=access_key,
             secret_key=secret_key,
@@ -441,8 +439,9 @@ def _cloudwatch_rds_metrics(settings: Settings) -> dict[str, float]:
     if not settings.rds_instance_identifier:
         return {}
     import os
+    from datetime import datetime, timedelta, timezone
+
     import boto3
-    from datetime import datetime, timezone, timedelta
 
     region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or settings.aws_region
     cw = boto3.client("cloudwatch", region_name=region)
