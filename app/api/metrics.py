@@ -4,7 +4,66 @@ import time
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from ..services.observability_service import list_metrics, list_service_health
+from ..services.observability_service import list_metrics, list_service_health, list_jvm_metrics, list_latency_metrics, list_infra_metrics
+
+# JVM 메트릭 전용 엔드포인트
+@router.get("/metrics/jvm")
+async def get_jvm_metrics(
+    service: str | None = None,
+    start: int | None = None,
+    end: int | None = None,
+    limit: int | None = None,
+) -> object:
+    result = await asyncio.get_event_loop().run_in_executor(None, lambda: list_jvm_metrics(service=service, start=start, end=end))
+    if isinstance(result, dict) and "__error__" in result:
+        raise HTTPException(
+            status_code=int(result.get("__status__", 502)),
+            detail=str(result.get("__error__")),
+        )
+    if limit is not None and isinstance(result, list):
+        return result[:limit]
+    return result
+
+# Latency 메트릭 전용 엔드포인트
+@router.get("/metrics/latency")
+async def get_latency_metrics(
+    service: str | None = None,
+    start: int | None = None,
+    end: int | None = None,
+    limit: int | None = None,
+) -> object:
+    result = await asyncio.get_event_loop().run_in_executor(None, lambda: list_latency_metrics(service=service, start=start, end=end))
+    if isinstance(result, dict) and "__error__" in result:
+        raise HTTPException(
+            status_code=int(result.get("__status__", 502)),
+            detail=str(result.get("__error__")),
+        )
+    if limit is not None and isinstance(result, list):
+        return result[:limit]
+    return result
+
+# Infra 메트릭 전용 엔드포인트
+@router.get("/metrics/infra")
+async def get_infra_metrics(
+    service: str | None = None,
+    start: int | None = None,
+    end: int | None = None,
+    limit: int | None = None,
+) -> object:
+    result = await asyncio.get_event_loop().run_in_executor(None, lambda: list_infra_metrics(service=service, start=start, end=end))
+    if isinstance(result, dict) and "__error__" in result:
+        raise HTTPException(
+            status_code=int(result.get("__status__", 502)),
+            detail=str(result.get("__error__")),
+        )
+    if limit is not None and isinstance(result, list):
+        return result[:limit]
+    return result
+
+# Service Health 전용 엔드포인트 (기존 함수 활용)
+@router.get("/metrics/service-health")
+async def get_service_health() -> list:
+    return await asyncio.get_event_loop().run_in_executor(None, list_service_health)
 from ..services.streaming_service import (
     encode_sse_event,
     ensure_stream_started,
