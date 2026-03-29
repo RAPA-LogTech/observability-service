@@ -452,6 +452,9 @@ def _cloudwatch_rds_metrics(settings: Settings) -> dict[str, float]:
     queries = [
         {"Id": "cpu",  "MetricStat": {"Metric": {"Namespace": "AWS/RDS", "MetricName": "CPUUtilization",      "Dimensions": dimensions}, "Period": 300, "Stat": "Average"}},
         {"Id": "conn", "MetricStat": {"Metric": {"Namespace": "AWS/RDS", "MetricName": "DatabaseConnections", "Dimensions": dimensions}, "Period": 300, "Stat": "Average"}},
+        {"Id": "freeable_memory", "MetricStat": {"Metric": {"Namespace": "AWS/RDS", "MetricName": "FreeableMemory", "Dimensions": dimensions}, "Period": 300, "Stat": "Average"}},
+        {"Id": "read_latency", "MetricStat": {"Metric": {"Namespace": "AWS/RDS", "MetricName": "ReadLatency", "Dimensions": dimensions}, "Period": 300, "Stat": "Average"}},
+        {"Id": "write_latency", "MetricStat": {"Metric": {"Namespace": "AWS/RDS", "MetricName": "WriteLatency", "Dimensions": dimensions}, "Period": 300, "Stat": "Average"}},
     ]
     try:
         resp = cw.get_metric_data(MetricDataQueries=queries, StartTime=start, EndTime=end)
@@ -506,6 +509,9 @@ def list_service_health() -> list[dict[str, Any]]:
             "error_rate": 0.0,
             "rds_cpu": rds.get("cpu"),
             "rds_connections": rds.get("conn"),
+            "rds_freeable_memory": rds.get("freeable_memory"),
+            "rds_read_latency": rds.get("read_latency"),
+            "rds_write_latency": rds.get("write_latency"),
         })
 
     return rows
