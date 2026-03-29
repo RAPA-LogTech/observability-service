@@ -29,15 +29,19 @@ async def get_infra_metrics(
     start = start or (end - 60)
     step = max(60, settings.amp_step_seconds)
 
+
     metric_specs = [
-        {"suffix": "cpu_usage", "unit": "%", "query": settings.amp_cpu_query},
-        {"suffix": "memory_usage", "unit": "%", "query": settings.amp_memory_query},
+        {"suffix": "cpu_usage", "unit": "%", "query": settings.amp_cpu_query, "type": "container"},
+        {"suffix": "memory_usage", "unit": "%", "query": settings.amp_memory_query, "type": "container"},
+        {"suffix": "host_memory_usage", "unit": "%", "query": 'host_memory_usage_avg_5m{instance!=""} * 100', "type": "host"},
+        {"suffix": "host_network_rx_bytes", "unit": "bytes", "query": 'host_network_rx_bytes_5m{instance!=""}', "type": "host"},
+        {"suffix": "host_network_tx_bytes", "unit": "bytes", "query": 'host_network_tx_bytes_5m{instance!=""}', "type": "host"},
     ]
 
     tasks = [(svc, spec) for svc in services for spec in metric_specs]
 
     def _fetch(svc: str, spec: dict) -> tuple[str, dict, list]:
-        query = spec["query"].replace("$service", svc)
+        query = spec["query"].replace("$service", svc) if "$service" in spec["query"] else spec["query"]
         return svc, spec, _amp_query_range(settings, query, start, end, step)
 
     results: dict[tuple, list] = {}
@@ -56,26 +60,35 @@ async def get_infra_metrics(
     if first_error and not results:
         raise HTTPException(status_code=int(first_error.get("__status__", 502)), detail=str(first_error.get("__error__")))
 
+
     series_list: list[dict] = []
     for svc, spec in tasks:
         result = results.get((svc, spec["suffix"]), [])
         values = result[0].get("values", []) if result else []
+        metric_type = spec.get("type", "container")
         points = []
+        instance = None
         for item in values:
             if isinstance(item, list) and len(item) == 2:
                 try:
                     points.append({"ts": int(float(item[0]) * 1000), "value": float(item[1])})
                 except (TypeError, ValueError):
                     pass
+        # instance 정보 추출 (host 메트릭의 경우)
+        if metric_type == "host" and result and isinstance(result[0].get("metric"), dict):
+            instance = result[0]["metric"].get("instance")
         if not points:
             continue
-        series_list.append({
+        entry = {
             "id": f"{svc}_{spec['suffix']}",
             "name": f"{svc}_{spec['suffix']}",
             "unit": spec["unit"],
             "service": svc,
             "points": points,
-        })
+        }
+        if instance:
+            entry["instance"] = instance
+        series_list.append(entry)
 
     if limit is not None and isinstance(series_list, list):
         return series_list[:limit]
