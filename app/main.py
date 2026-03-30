@@ -36,6 +36,7 @@ def create_app() -> FastAPI:
     fastapi_app.include_router(logs_router)
     fastapi_app.include_router(metrics_router)
     fastapi_app.include_router(overview_router)
+    fastapi_app.include_router(traces_router)
 
     return fastapi_app
 
