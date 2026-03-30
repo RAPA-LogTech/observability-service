@@ -5,7 +5,7 @@ from ..services.observability_service import _is_real_mode, _amp_query_range
 
 router = APIRouter()
 
-@router.get("/v1/metrics/host")
+@router.get("/host")
 async def get_host_metrics(
     start: int | None = None,
     end: int | None = None,

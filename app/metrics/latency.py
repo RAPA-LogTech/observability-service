@@ -7,7 +7,7 @@ from ..services.observability_service import _is_real_mode, _amp_list_services, 
 
 router = APIRouter()
 
-@router.get("/v1/metrics/latency")
+@router.get("/latency")
 async def get_latency_metrics(
     service: str | None = None,
     start: int | None = None,

@@ -4,7 +4,7 @@ import json
 
 router = APIRouter()
 
-@router.get("/logs")
+@router.get("/")
 def get_logs(
     service: str | None = None,
     log_source: str | None = None,  # 로그 소스 필터 (app, host, all)

@@ -3,7 +3,7 @@ from ..services.streaming_service import ensure_stream_started, get_stream_backl
 
 router = APIRouter()
 
-@router.get("/logs/backlog")
+@router.get("/backlog")
 async def get_logs_backlog(
     cursor: int = Query(default=0, ge=0),
     limit: int = Query(default=500, ge=1, le=1000),

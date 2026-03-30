@@ -5,7 +5,7 @@ from ..services.observability_service import _is_real_mode, _amp_list_services, 
 
 router = APIRouter()
 
-@router.get("/v1/metrics/container")
+@router.get("/container")
 async def get_container_metrics(
     service: str | None = None,
     start: int | None = None,

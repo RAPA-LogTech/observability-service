@@ -4,7 +4,7 @@ from .detail import router as detail_router
 from .stream import router as stream_router
 from .backlog import router as backlog_router
 
-router = APIRouter(prefix="/v1")
+router = APIRouter(prefix="/v1/traces")
 
 router.include_router(query_router)
 router.include_router(detail_router)

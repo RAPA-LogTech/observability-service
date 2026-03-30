@@ -12,7 +12,7 @@ import time
 
 router = APIRouter()
 
-@router.get("/logs/stream")
+@router.get("/stream")
 async def stream_logs(request: Request) -> StreamingResponse:
     await ensure_stream_started("logs")
     queue = subscribe_stream("logs")

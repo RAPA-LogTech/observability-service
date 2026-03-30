@@ -7,7 +7,7 @@ from ..services.observability_service import _is_real_mode, _amp_list_services, 
 
 router = APIRouter()
 
-@router.get("/v1/metrics/infra")
+@router.get("/infra")
 async def get_infra_metrics(
     service: str | None = None,
     start: int | None = None,

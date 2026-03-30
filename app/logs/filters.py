@@ -4,7 +4,7 @@ from ..services.observability_service import _opensearch_search, get_settings
 
 router = APIRouter()
 
-@router.get("/logs/filters")
+@router.get("/filters")
 async def get_log_filters() -> dict:
     settings = get_settings()
     app_aggs = {

@@ -7,7 +7,7 @@ from ..services.observability_service import _is_real_mode, _amp_list_services, 
 
 router = APIRouter()
 
-@router.get("/v1/metrics/jvm")
+@router.get("/jvm")
 async def get_jvm_metrics(
     service: str | None = None,
     start: int | None = None,
