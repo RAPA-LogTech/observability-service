@@ -5,7 +5,7 @@ from .stream import router as stream_router
 from .backlog import router as backlog_router
 from .filters import router as filters_router
 
-router = APIRouter()
+router = APIRouter(prefix="/v1")
 
 router.include_router(query_router)
 router.include_router(stream_router)

@@ -77,7 +77,7 @@ def _safe_env(value: str | None) -> str | None:
 
 
 def _safe_level(value: str | None) -> str | None:
-    if not value:
+    if not value or not isinstance(value, str):
         return None
     candidate = value.upper()
     if candidate in {"INFO", "WARN", "ERROR", "DEBUG"}:

@@ -8,7 +8,7 @@ from .jvm import router as jvm_router
 from .latency import router as latency_router
 from .service_health import router as service_health_router
 
-router = APIRouter()
+router = APIRouter(prefix="/v1")
 
 router.include_router(stream_router)
 router.include_router(backlog_router)
