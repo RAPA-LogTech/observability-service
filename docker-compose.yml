@@ -10,7 +10,7 @@ services:
       - OPENSEARCH_URL=https://vpc-log-platform-dev-a4ijq3cswvvdkbdaf677gkkvl4.ap-northeast-2.es.amazonaws.com
       - OPENSEARCH_USERNAME=admin
       - OPENSEARCH_PASSWORD=Fkvk1234!
-      - AMP_ENDPOINT=https://aps-workspaces.ap-northeast-2.amazonaws.com/workspaces/ws-82288d50-86e5-4488-8556-9dbf0058ec59/api/v1/query
+      - AMP_ENDPOINT=https://aps-workspaces.ap-northeast-2.amazonaws.com/workspaces/ws-d18e8248-cbac-4fd8-986c-2947a850932e/api/v1/query
       - ALLOWED_ORIGINS=http://localhost:3000
       - RDS_INSTANCE_IDENTIFIER=log-platform-dev-customer-postgres
       - AWS_REGION=ap-northeast-2
