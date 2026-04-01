@@ -16,6 +16,9 @@ async def get_infra_summary():
     step_seconds = 60
     container_cpu = _amp_query_range(settings, 'app_container_cpu_utilization_avg_5m', start_ts, end_ts, step_seconds)
     container_mem = _amp_query_range(settings, 'app_container_memory_utilization_avg_5m', start_ts, end_ts, step_seconds)
+    host_memory = _amp_query_range(settings, 'host_memory_usage_avg_5m', start_ts, end_ts, step_seconds)
+    host_network_rx = _amp_query_range(settings, 'host_network_rx_bytes_5m', start_ts, end_ts, step_seconds)
+    host_network_tx = _amp_query_range(settings, 'host_network_tx_bytes_5m', start_ts, end_ts, step_seconds)
     rds_cpu = _amp_query_range(settings, 'rds_cpu_utilization', start_ts, end_ts, step_seconds)
     rds_conn = _amp_query_range(settings, 'rds_database_connections', start_ts, end_ts, step_seconds)
     db_usage = _amp_query_range(settings, 'db_client_connections_usage', start_ts, end_ts, step_seconds)
@@ -26,6 +29,9 @@ async def get_infra_summary():
     return {
         "container_cpu": container_cpu,
         "container_mem": container_mem,
+        "host_memory": host_memory,
+        "host_network_rx": host_network_rx,
+        "host_network_tx": host_network_tx,
         "rds_cpu": rds_cpu,
         "rds_conn": rds_conn,
         "db_usage": db_usage,
