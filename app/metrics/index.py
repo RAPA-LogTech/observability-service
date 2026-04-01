@@ -6,6 +6,8 @@ from .infra import router as infra_router
 from .container import router as container_router
 from .host import router as host_router
 from .jvm import router as jvm_router
+from .databases import router as databases_router
+from .rds import router as rds_router
 from .latency import router as latency_router
 from .service_health import router as service_health_router
 
@@ -18,5 +20,7 @@ router.include_router(infra_router)
 router.include_router(container_router)
 router.include_router(host_router)
 router.include_router(jvm_router)
+router.include_router(databases_router)
+router.include_router(rds_router)
 router.include_router(latency_router)
 router.include_router(service_health_router)

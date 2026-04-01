@@ -361,14 +361,22 @@ def _amp_query_range(
             result = payload.get("data", {}).get("result", [])
             return result if isinstance(result, list) else []
     except HTTPError as exc:
-        return [{"__error__": f"AMP request failed: HTTP {exc.code}", "__status__": int(exc.code)}]
+        return [{
+            "__error__": f"AMP request failed: HTTP {exc.code}",
+            "__status__": int(exc.code),
+            "__url__": full_url,
+        }]
     except URLError as exc:
         reason = getattr(exc, "reason", "connection error")
-        return [{"__error__": f"AMP request failed: {reason}", "__status__": 502}]
+        return [{
+            "__error__": f"AMP request failed: {reason}",
+            "__status__": 502,
+            "__url__": full_url,
+        }]
     except TimeoutError:
-        return [{"__error__": "AMP request timed out", "__status__": 504}]
+        return [{"__error__": "AMP request timed out", "__status__": 504, "__url__": full_url}]
     except ValueError:
-        return [{"__error__": "AMP response is not valid JSON", "__status__": 502}]
+        return [{"__error__": "AMP response is not valid JSON", "__status__": 502, "__url__": full_url}]
 
 
 def _amp_instant_query(settings: Settings, query: str) -> list[dict[str, Any]]:

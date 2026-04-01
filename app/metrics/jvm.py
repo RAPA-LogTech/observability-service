@@ -65,9 +65,12 @@ async def get_jvm_metrics(
             results[spec["suffix"]] = result
 
     if first_error and not results:
+        detail = str(first_error.get("__error__"))
+        if first_error.get("__url__"):
+            detail = f"{detail} ({first_error.get('__url__')})"
         raise HTTPException(
             status_code=int(first_error.get("__status__", 502)),
-            detail=str(first_error.get("__error__")),
+            detail=detail,
         )
 
     def _extract_service(metric_labels: dict) -> str:
