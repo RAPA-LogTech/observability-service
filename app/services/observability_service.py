@@ -486,9 +486,20 @@ def list_service_health() -> list[dict[str, Any]]:
         job = metric.get("job", "")
         svc = job.split("/")[-1] if "/" in job else job
         if not svc:
-            svc = metric.get("service", "")
-        env = metric.get("deployment_environment") or metric.get("environment")
-        if not svc or not env:
+            svc = (
+                metric.get("service")
+                or metric.get("service_name")
+                or metric.get("kubernetes_name")
+                or metric.get("instance")
+                or "unknown"
+            )
+        env = (
+            metric.get("deployment_environment")
+            or metric.get("environment")
+            or metric.get("namespace")
+            or "all"
+        )
+        if not svc:
             continue
         key = (svc, env)
         if key in seen:
