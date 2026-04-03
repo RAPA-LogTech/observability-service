@@ -1036,10 +1036,34 @@ def _group_spans_into_traces(spans: list[dict[str, Any]]) -> list[dict[str, Any]
             "status_code": http_code,
             "spans": sorted_spans,
             "tags": root_span.get("tags", {}),
+            "env": _extract_trace_environment(sorted_spans),
         })
 
     traces.sort(key=lambda t: t["startTime"], reverse=True)
     return traces
+
+
+def _extract_trace_environment(trace_spans: list[dict[str, Any]]) -> str | None:
+    for span in trace_spans:
+        if not isinstance(span, dict):
+            continue
+
+        tags = span.get("tags")
+        if not isinstance(tags, dict):
+            continue
+
+        candidate = _safe_env(
+            str(
+                tags.get("resource.deployment.environment")
+                or tags.get("deployment.environment")
+                or tags.get("env")
+                or ""
+            )
+        )
+        if candidate:
+            return candidate
+
+    return None
 
 
 def list_traces(
@@ -1125,6 +1149,85 @@ def list_traces(
     traces = traces[offset:offset + limit]
 
     return {"traces": traces, "total": total}
+
+
+def list_trace_filters(
+    start_time: int | None = None,
+    end_time: int | None = None,
+) -> dict[str, list[str]]:
+    settings = get_settings()
+    if not _is_real_mode(settings):
+        return {"services": [], "operations": [], "statuses": [], "envs": []}
+    if not settings.opensearch_url or not settings.opensearch_traces_index:
+        return {"services": [], "operations": [], "statuses": [], "envs": []}
+
+    result = list_traces(limit=500, offset=0, start_time=start_time, end_time=end_time)
+    traces = result.get("traces", []) if isinstance(result, dict) else []
+    if not isinstance(traces, list):
+        traces = []
+
+    services: set[str] = set()
+    operations: set[str] = set()
+    statuses: set[str] = set()
+    envs: set[str] = set()
+
+    for trace in traces:
+        if not isinstance(trace, dict):
+            continue
+
+        service = trace.get("service")
+        operation = trace.get("operation")
+        status = trace.get("status")
+
+        if isinstance(service, str) and service:
+            services.add(service)
+        if isinstance(operation, str) and operation:
+            operations.add(operation)
+        if isinstance(status, str) and status:
+            statuses.add(status)
+
+        trace_env = trace.get("env")
+        if isinstance(trace_env, str) and trace_env:
+            envs.add(trace_env)
+
+        trace_tags = trace.get("tags", {})
+        if isinstance(trace_tags, dict):
+            candidate = _safe_env(
+                str(
+                    trace_tags.get("resource.deployment.environment")
+                    or trace_tags.get("deployment.environment")
+                    or trace_tags.get("env")
+                    or ""
+                )
+            )
+            if candidate:
+                envs.add(candidate)
+
+        for span in trace.get("spans", []):
+            if not isinstance(span, dict):
+                continue
+            span_service = span.get("service")
+            if isinstance(span_service, str) and span_service:
+                services.add(span_service)
+            span_tags = span.get("tags")
+            if isinstance(span_tags, dict):
+                candidate = _safe_env(
+                    str(
+                        span_tags.get("resource.deployment.environment")
+                        or span_tags.get("deployment.environment")
+                        or span_tags.get("env")
+                        or ""
+                    )
+                )
+                if candidate:
+                    envs.add(candidate)
+
+    return {
+        "services": sorted(services),
+        "operations": sorted(operations),
+        "statuses": sorted(statuses),
+        "envs": sorted(envs),
+    }
 
 
 def get_trace_detail(trace_id: str) -> dict | None:
