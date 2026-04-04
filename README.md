@@ -1,61 +1,46 @@
-
-
 # observability-service
 
 FastAPI backend for logs, metrics, and traces. 기본 포트: **8081**
 
 ---
 
-## Docker Compose 단일 파일 배포 (환경변수 파일 없이)
+## AWS 배포
 
+Terraform을 통해 Dashboard EC2에 Docker Compose로 자동 배포됩니다.
 
-### 1. docker-compose.yaml을 리눅스에서 바로 저장하는 명령어 예시
-
-```bash
-cat > docker-compose.yaml <<'EOF'
-version: '3.8'
-services:
-  observability-service:
-    image: gurururu/observability-service:latest
-    container_name: observability-service
-    restart: unless-stopped
-    ports:
-      - "8081:8081"
-    environment:
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://3.35.146.202:4318
-      - OPENSEARCH_URL=https://vpc-log-platform-dev-a4ijq3cswvvdkbdaf677gkkvl4.ap-northeast-2.es.amazonaws.com
-      - OPENSEARCH_USERNAME=admin
-      - OPENSEARCH_PASSWORD=Fkvk1234!
-      - AMP_ENDPOINT=https://aps-workspaces.ap-northeast-2.amazonaws.com/workspaces/ws-d821ca92-5426-43ae-a112-a98512ce9edd/api/v1/query
-      - ALLOWED_ORIGINS=http://localhost:3000
-EOF
-```
-
-위 명령어를 복사해서 붙여넣으면 docker-compose.yaml 파일이 바로 생성됩니다.
-
-### 2. 컨테이너 실행/업데이트
+### 배포 명령어
 
 ```bash
-docker compose up -d
+cd aws-observability-platform
+terraform apply
 ```
 
-### 3. 상태/로그 확인
+### 배포 구조
 
-```bash
-docker compose ps
-docker compose logs --tail=100 observability-service
+```
+Terraform → Dashboard EC2 생성 → user_data_dashboard.sh →
+  ├─ observability-service (Docker, 8081포트)
+  └─ dashboard 프론트엔드 (Docker, 3000포트)
 ```
 
-### 4. 기타
+### 자동 설정 환경변수
 
-- 환경변수는 docker-compose.yml의 environment: 섹션에서 직접 관리합니다.
-- 별도의 .env 파일이나 export 없이 바로 적용됩니다.
-- 기존 venv/python 수동 실행 방식은 더 이상 사용하지 않습니다.
+| 변수 | 값 | 설명 |
+|------|-----|------|
+| `OPENSEARCH_URL` | `${opensearch_endpoint}` | OpenSearch 엔드포인트 |
+| `OPENSEARCH_USERNAME` | `${opensearch_master_user}` | OpenSearch 마스터 유저 |
+| `OPENSEARCH_PASSWORD` | `${opensearch_master_password}` | OpenSearch 비밀번호 |
+| `AMP_ENDPOINT` | `${amp_remote_write_url}` | AMP Remote Write URL |
+| `ALLOWED_ORIGINS` | `${public_dashboard_url}` | CORS 허용 도메인 |
+| `AWS_REGION` | `${aws_region}` | AWS 리전 |
+
+### Docker 설정
+
+- 이미지: `gurururu/observability-service:latest`
+- 네트워크: `host` 모드
+- 재시작: `unless-stopped`
 
 ---
-
----
-
 
 ## API Endpoints
 
@@ -73,6 +58,40 @@ docker compose logs --tail=100 observability-service
 | GET | `/v1/traces/stream` | 실시간 트레이스 스트림 (SSE) |
 | GET | `/v1/traces/backlog` | 트레이스 페이징 |
 
-git pull
-git clone https://github.com/RAPA-LogTech/observability-service.git
-git pull
+---
+
+## 배포 상태 확인
+
+```bash
+# EC2 접속 후
+docker ps
+docker logs -f observability-service
+```
+
+---
+
+## 이미지 최신화
+
+서버에 이미 배포된 상태에서 코드를 수정하고 이미지를 최신화할 때 사용합니다.
+
+### 빌드 & 푸시 & 서버 배포
+
+```bash
+# deploy.sh 실행 (이미지 빌드 → Docker Hub 푸시 → 서버 pull 및 재시작)
+./deploy.sh
+```
+
+### 수동 배포
+
+```bash
+# 1. 이미지 빌드 및 푸시
+docker buildx build --platform linux/amd64 --push -t gurururu/observability-service:latest .
+
+# 2. 서버 접속
+ssh -i ~/.ssh/your-key.pem ubuntu@<server-ip>
+
+# 3. 이미지 pull 및 컨테이너 재시작
+sudo docker pull gurururu/observability-service:latest
+sudo docker stop observability-service && sudo docker rm -f observability-service
+sudo docker compose -f /home/ubuntu/observability-compose.yml up -d observability-service
+```
