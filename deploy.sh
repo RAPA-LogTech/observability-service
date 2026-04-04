@@ -4,10 +4,10 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEPLOY_DIR="$(dirname "$SCRIPT_DIR")"
+DEPLOY_DIR="$SCRIPT_DIR"
 
 IMAGE="gurururu/observability-service:latest"
-SERVER_IP="43.202.232.153"
+SERVER_IP="52.79.176.78"
 SERVER="ubuntu@$SERVER_IP"
 SSH_KEY="$HOME/keys/log-platform-key-v6.pem"
 
