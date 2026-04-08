@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Query
-from ..services.observability_service import list_logs
 import json
+
+from fastapi import APIRouter, Query, Response
+from ..services.observability_service import list_logs
 
 router = APIRouter()
 
@@ -16,12 +17,12 @@ def get_logs(
     customTags: str | None = None,  # JSON 직렬화된 문자열로 전달
     limit: int = Query(default=100, le=1000),
     offset: int = 0,
-) -> dict:
+) -> Response:
     tags = None
     if customTags:
         try:
             tags = json.loads(customTags)
-        except Exception:
+        except (json.JSONDecodeError, ValueError, TypeError):
             tags = None
     result = list_logs(
         service=service,
@@ -35,9 +36,8 @@ def get_logs(
         limit=limit,
         offset=offset,
     )
-    if "__error__" in result:
-        raise HTTPException(
-            status_code=int(result.get("__status__", 502)),
-            detail=str(result.get("__error__")),
-        )
-    return result
+    return Response(
+        content=json.dumps(result),
+        media_type="application/json",
+        status_code=int(result.get("__status__", 200)) if "__status__" in result else 200,
+    )

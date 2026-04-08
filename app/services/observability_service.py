@@ -76,17 +76,31 @@ def _safe_env(value: str | None) -> str | None:
     return None
 
 
-def _safe_level(value: str | None) -> str | None:
-    if not value or not isinstance(value, str):
+# OTel severity number → text 매핑 (https://opentelemetry.io/docs/specs/otel/logs/data-model/#field-severitynumber)
+_SEVERITY_NUMBER_MAP: dict[int, str] = {
+    **{i: "DEBUG" for i in range(1, 5)},
+    **{i: "INFO" for i in range(5, 9)},
+    **{i: "WARN" for i in range(9, 13)},
+    **{i: "ERROR" for i in range(13, 17)},
+    **{i: "ERROR" for i in range(17, 25)},  # FATAL → ERROR로 통합
+}
+
+
+def _safe_level(value: str | int | None) -> str | None:
+    if value is None:
         return None
-    candidate = value.upper()
+    if isinstance(value, (int, float)):
+        return _SEVERITY_NUMBER_MAP.get(int(value))
+    if not isinstance(value, str):
+        return None
+    candidate = value.upper().strip()
     if candidate in {"INFO", "WARN", "ERROR", "DEBUG"}:
         return candidate
-    if "ERROR" in candidate or "ERR" in candidate:
+    if "ERROR" in candidate or "ERR" in candidate or "FATAL" in candidate or "CRIT" in candidate:
         return "ERROR"
     if "WARN" in candidate:
         return "WARN"
-    if "DEBUG" in candidate:
+    if "DEBUG" in candidate or "TRACE" in candidate:
         return "DEBUG"
     if "INFO" in candidate:
         return "INFO"
@@ -779,9 +793,26 @@ def list_logs(
                 "source": doc.get("_index", ""),  # 로그 소스 (logs-app, logs-host 등)
                 "service": str(service_val),
                 "traceId": str(trace_id),
-                "env": _safe_env(_extract_nested(source, "resource.deployment.environment", "deployment.environment")),
+                "env": _safe_env(
+                    _extract_nested(
+                        source,
+                        "resource.deployment.environment",
+                        "deployment.environment",
+                        "env",
+                    )
+                    or source.get("resource", {}).get("deployment.environment")
+                    or source.get("resource", {}).get("attributes", {}).get("deployment.environment")
+                ),
                 "level": _safe_level(
-                    _extract_nested(source, "level", "severity", "severity_text", "severityText")
+                    _extract_nested(
+                        source,
+                        "severityText",
+                        "severity.text",
+                        "level",
+                        "severity_text",
+                    )
+                    or source.get("severityNumber")
+                    or source.get("severity_number")
                 ),
                 "message": str(message or ""),
                 "metadata": metadata,
