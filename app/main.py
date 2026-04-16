@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api.health import router as health_router
@@ -11,6 +11,12 @@ from .api.overview import router as overview_router
 from .core.config import get_settings
 
 logger = logging.getLogger("uvicorn.error")
+
+router = APIRouter()
+
+@router.get("/")
+async def root():
+    return {"status": "ok"}
 
 
 def create_app() -> FastAPI:
@@ -33,6 +39,7 @@ def create_app() -> FastAPI:
 
 
     fastapi_app.include_router(health_router)
+    fastapi_app.include_router(router)
     fastapi_app.include_router(logs_router)
     fastapi_app.include_router(metrics_router)
     fastapi_app.include_router(overview_router)
