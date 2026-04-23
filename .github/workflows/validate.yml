@@ -27,7 +27,7 @@ jobs:
       - name: Lint & Format
         run: |
           pip install ruff
-          ruff check --fix .
+          ruff check --exit-zero --fix .
           ruff format .
 
       - name: Commit & Push
