@@ -1,0 +1,36 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint
+        run: pip install ruff && ruff check .
+
+      - name: Docker build check
+        run: docker build --platform linux/amd64 -t observability-service:test .
+
+      - name: Run container & health check
+        run: |
+          docker run -d --name observability-test observability-service:test
+          sleep 10
+          docker exec observability-test curl -f http://localhost:80/health || exit 1
+          docker stop observability-test

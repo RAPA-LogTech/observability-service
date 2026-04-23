@@ -1,0 +1,62 @@
+name: Deploy
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Set image tag
+        id: tag
+        run: echo "IMAGE_TAG=$(date -u +%Y%m%d%H%M%S)" >> $GITHUB_OUTPUT
+
+      - name: Build & Push to ECR
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          IMAGE_TAG: ${{ steps.tag.outputs.IMAGE_TAG }}
+        run: |
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          REPO="${ECR_REGISTRY}/log-platform-dev-observability-service"
+
+          aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+
+          docker buildx build --platform linux/amd64 \
+            -t ${REPO}:${IMAGE_TAG} \
+            -t ${REPO}:latest \
+            --push .
+
+      - name: Update k8s-manifests
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          IMAGE_TAG: ${{ steps.tag.outputs.IMAGE_TAG }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+          git clone https://x-access-token:${GH_PAT}@github.com/RAPA-LogTech/k8s-manifests.git gitops
+          cd gitops
+
+          sed -i "s|image: .*log-platform-dev-observability-service:.*|image: ${ECR_REGISTRY}/log-platform-dev-observability-service:${IMAGE_TAG}|" observability/deployment.yaml
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add observability/deployment.yaml
+          git diff --staged --quiet || git commit -m "chore: update observability-service image to ${IMAGE_TAG}"
+          git push
