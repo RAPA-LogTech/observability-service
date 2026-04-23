@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validate:
@@ -13,6 +13,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -22,13 +24,32 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Lint
-        run: pip install ruff && ruff check .
+      - name: Lint & Format
+        run: |
+          pip install ruff
+          ruff check --fix .
+          ruff format .
+
+      - name: Commit & Push
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet && ! git diff --staged --quiet; then
+            git add -A
+            git commit -m "style: auto-format with ruff"
+            git push
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Docker build check
+        if: steps.commit.outputs.has_changes != 'true'
         run: docker build --platform linux/amd64 -t observability-service:test .
 
       - name: Run container & health check
+        if: steps.commit.outputs.has_changes != 'true'
         run: |
           docker run -d --name observability-test observability-service:test
           sleep 10
