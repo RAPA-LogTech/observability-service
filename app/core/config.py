@@ -29,8 +29,12 @@ class Settings(BaseSettings):
     amp_5xx_ratio_query: str = 'app_http_server_5xx_error_ratio_5m{job=~".+/$service"}'
     amp_latency_p95_query: str = 'app_http_server_latency_p95_5m{job=~".+/$service"} * 1000'
     amp_throughput_query: str = 'app_http_server_requests_5m{job=~".+/$service"}'
-    amp_cpu_query: str = 'app_container_cpu_utilization_avg_5m{container_name=~".*$service.*"} * 100'
-    amp_memory_query: str = 'app_container_memory_utilization_avg_5m{container_name=~".*$service.*"}'
+    amp_cpu_query: str = (
+        'app_container_cpu_utilization_avg_5m{container_name=~".*$service.*"} * 100'
+    )
+    amp_memory_query: str = (
+        'app_container_memory_utilization_avg_5m{container_name=~".*$service.*"}'
+    )
 
     # RDS CloudWatch
     rds_instance_identifier: str | None = None

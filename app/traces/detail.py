@@ -1,7 +1,9 @@
 from fastapi import APIRouter, HTTPException
+
 from ..services.observability_service import get_trace_detail
 
 router = APIRouter()
+
 
 @router.get("/trace/{trace_id}")
 def get_trace(trace_id: str) -> dict:

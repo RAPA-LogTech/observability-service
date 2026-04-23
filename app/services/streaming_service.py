@@ -4,7 +4,7 @@ import time
 from collections import deque
 from typing import Any, Literal
 
-from .observability_service import get_latest_metric_points, list_logs, list_metrics, list_traces
+from .observability_service import get_latest_metric_points, list_logs, list_traces
 
 StreamKind = Literal["logs", "metrics", "traces"]
 

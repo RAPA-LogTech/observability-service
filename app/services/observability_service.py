@@ -24,6 +24,7 @@ logger = logging.getLogger("uvicorn.error")
 # OpenSearch connection pool — 모듈 레벨 싱글턴
 _opensearch_session: _requests.Session | None = None
 
+
 def _get_opensearch_session() -> _requests.Session:
     global _opensearch_session
     if _opensearch_session is None:
@@ -37,8 +38,6 @@ def _get_opensearch_session() -> _requests.Session:
         session.mount("http://", adapter)
         _opensearch_session = session
     return _opensearch_session
-
-
 
 
 def _normalize_amp_endpoint_for_query(endpoint: str) -> str:
@@ -156,6 +155,7 @@ def _normalize_to_millis(value: Any) -> int | None:
         if "T" in stripped or ("-" in stripped and ":" in stripped):
             try:
                 from datetime import datetime
+
                 dt_str = stripped.rstrip("Z")
                 # 소수점 이하 6자리 초과(나노초 등) → 마이크로초로 truncate
                 if "." in dt_str:
@@ -280,7 +280,9 @@ def _make_sigv4_request(method: str, url: str) -> Request:
     """
     import os
 
-    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "ap-northeast-2"
+    region = (
+        os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "ap-northeast-2"
+    )
 
     # 환경변수에 자격증명이 있으면 직접 사용 (컨테이너 환경 우선)
     access_key = os.environ.get("AWS_ACCESS_KEY_ID")
@@ -289,6 +291,7 @@ def _make_sigv4_request(method: str, url: str) -> Request:
 
     if access_key and secret_key:
         from botocore.credentials import Credentials
+
         creds = Credentials(
             access_key=access_key,
             secret_key=secret_key,
@@ -299,7 +302,9 @@ def _make_sigv4_request(method: str, url: str) -> Request:
         session = boto3.Session(region_name=region)
         resolved = session.get_credentials()
         if resolved is None:
-            raise RuntimeError("AWS credentials not found. Set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY or ensure EC2 IMDSv2 hop limit >= 2.")
+            raise RuntimeError(
+                "AWS credentials not found. Set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY or ensure EC2 IMDSv2 hop limit >= 2."
+            )
         creds = resolved.get_frozen_credentials()
 
     aws_req = AWSRequest(method=method, url=url)
@@ -336,7 +341,10 @@ def _opensearch_search(settings: Settings, index: str, body: dict[str, Any]) -> 
         resp.raise_for_status()
         return resp.json()
     except _requests.exceptions.HTTPError as exc:
-        return {"__error__": f"OpenSearch request failed: HTTP {exc.response.status_code}", "__status__": exc.response.status_code}
+        return {
+            "__error__": f"OpenSearch request failed: HTTP {exc.response.status_code}",
+            "__status__": exc.response.status_code,
+        }
     except _requests.exceptions.Timeout:
         return {"__error__": "OpenSearch request timed out", "__status__": 504}
     except _requests.exceptions.ConnectionError as exc:
@@ -375,22 +383,28 @@ def _amp_query_range(
             result = payload.get("data", {}).get("result", [])
             return result if isinstance(result, list) else []
     except HTTPError as exc:
-        return [{
-            "__error__": f"AMP request failed: HTTP {exc.code}",
-            "__status__": int(exc.code),
-            "__url__": full_url,
-        }]
+        return [
+            {
+                "__error__": f"AMP request failed: HTTP {exc.code}",
+                "__status__": int(exc.code),
+                "__url__": full_url,
+            }
+        ]
     except URLError as exc:
         reason = getattr(exc, "reason", "connection error")
-        return [{
-            "__error__": f"AMP request failed: {reason}",
-            "__status__": 502,
-            "__url__": full_url,
-        }]
+        return [
+            {
+                "__error__": f"AMP request failed: {reason}",
+                "__status__": 502,
+                "__url__": full_url,
+            }
+        ]
     except TimeoutError:
         return [{"__error__": "AMP request timed out", "__status__": 504, "__url__": full_url}]
     except ValueError:
-        return [{"__error__": "AMP response is not valid JSON", "__status__": 502, "__url__": full_url}]
+        return [
+            {"__error__": "AMP response is not valid JSON", "__status__": 502, "__url__": full_url}
+        ]
 
 
 def _amp_instant_query(settings: Settings, query: str) -> list[dict[str, Any]]:
@@ -421,19 +435,15 @@ def get_latest_metric_points() -> list[dict[str, Any]]:
         return []
 
     metric_specs = [
-        {"suffix": "request_rate", "unit": "req/s",  "query": settings.amp_throughput_query},
-        {"suffix": "error_rate",   "unit": "%",       "query": settings.amp_error_rate_query},
-        {"suffix": "latency_p95",  "unit": "ms",      "query": settings.amp_latency_p95_query},
-        {"suffix": "cpu_usage",    "unit": "%",       "query": settings.amp_cpu_query},
-        {"suffix": "memory_usage", "unit": "%",       "query": settings.amp_memory_query},
+        {"suffix": "request_rate", "unit": "req/s", "query": settings.amp_throughput_query},
+        {"suffix": "error_rate", "unit": "%", "query": settings.amp_error_rate_query},
+        {"suffix": "latency_p95", "unit": "ms", "query": settings.amp_latency_p95_query},
+        {"suffix": "cpu_usage", "unit": "%", "query": settings.amp_cpu_query},
+        {"suffix": "memory_usage", "unit": "%", "query": settings.amp_memory_query},
     ]
 
     now_ms = int(time.time() * 1000)
-    tasks = [
-        (svc, spec)
-        for svc in services
-        for spec in metric_specs
-    ]
+    tasks = [(svc, spec) for svc in services for spec in metric_specs]
 
     def _fetch(svc: str, spec: dict) -> dict[str, Any] | None:
         query = spec["query"].replace("$service", svc)
@@ -465,18 +475,75 @@ def _cloudwatch_rds_metrics(settings: Settings) -> dict[str, float]:
 
     import boto3
 
-    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or settings.aws_region
+    region = (
+        os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or settings.aws_region
+    )
     cw = boto3.client("cloudwatch", region_name=region)
     end = datetime.now(timezone.utc)
     start = end - timedelta(minutes=10)
     dimensions = [{"Name": "DBInstanceIdentifier", "Value": settings.rds_instance_identifier}]
 
     queries = [
-        {"Id": "cpu",  "MetricStat": {"Metric": {"Namespace": "AWS/RDS", "MetricName": "CPUUtilization",      "Dimensions": dimensions}, "Period": 300, "Stat": "Average"}},
-        {"Id": "conn", "MetricStat": {"Metric": {"Namespace": "AWS/RDS", "MetricName": "DatabaseConnections", "Dimensions": dimensions}, "Period": 300, "Stat": "Average"}},
-        {"Id": "freeable_memory", "MetricStat": {"Metric": {"Namespace": "AWS/RDS", "MetricName": "FreeableMemory", "Dimensions": dimensions}, "Period": 300, "Stat": "Average"}},
-        {"Id": "read_latency", "MetricStat": {"Metric": {"Namespace": "AWS/RDS", "MetricName": "ReadLatency", "Dimensions": dimensions}, "Period": 300, "Stat": "Average"}},
-        {"Id": "write_latency", "MetricStat": {"Metric": {"Namespace": "AWS/RDS", "MetricName": "WriteLatency", "Dimensions": dimensions}, "Period": 300, "Stat": "Average"}},
+        {
+            "Id": "cpu",
+            "MetricStat": {
+                "Metric": {
+                    "Namespace": "AWS/RDS",
+                    "MetricName": "CPUUtilization",
+                    "Dimensions": dimensions,
+                },
+                "Period": 300,
+                "Stat": "Average",
+            },
+        },
+        {
+            "Id": "conn",
+            "MetricStat": {
+                "Metric": {
+                    "Namespace": "AWS/RDS",
+                    "MetricName": "DatabaseConnections",
+                    "Dimensions": dimensions,
+                },
+                "Period": 300,
+                "Stat": "Average",
+            },
+        },
+        {
+            "Id": "freeable_memory",
+            "MetricStat": {
+                "Metric": {
+                    "Namespace": "AWS/RDS",
+                    "MetricName": "FreeableMemory",
+                    "Dimensions": dimensions,
+                },
+                "Period": 300,
+                "Stat": "Average",
+            },
+        },
+        {
+            "Id": "read_latency",
+            "MetricStat": {
+                "Metric": {
+                    "Namespace": "AWS/RDS",
+                    "MetricName": "ReadLatency",
+                    "Dimensions": dimensions,
+                },
+                "Period": 300,
+                "Stat": "Average",
+            },
+        },
+        {
+            "Id": "write_latency",
+            "MetricStat": {
+                "Metric": {
+                    "Namespace": "AWS/RDS",
+                    "MetricName": "WriteLatency",
+                    "Dimensions": dimensions,
+                },
+                "Period": 300,
+                "Stat": "Average",
+            },
+        },
     ]
     try:
         resp = cw.get_metric_data(MetricDataQueries=queries, StartTime=start, EndTime=end)
@@ -497,7 +564,10 @@ def list_service_health() -> list[dict[str, Any]]:
     if not _is_real_mode(settings) or not settings.amp_endpoint:
         return []
 
-    result = _amp_instant_query(settings, '(app_http_server_4xx_errors_5m + app_http_server_5xx_errors_5m) / (app_http_server_requests_5m > 0) * 100')
+    result = _amp_instant_query(
+        settings,
+        "(app_http_server_4xx_errors_5m + app_http_server_5xx_errors_5m) / (app_http_server_requests_5m > 0) * 100",
+    )
     if not result:
         return []
 
@@ -537,15 +607,17 @@ def list_service_health() -> list[dict[str, Any]]:
 
     rds = _cloudwatch_rds_metrics(settings)
     if rds:
-        rows.append({
-            "service": "rds",
-            "error_rate": 0.0,
-            "rds_cpu": rds.get("cpu"),
-            "rds_connections": rds.get("conn"),
-            "rds_freeable_memory": rds.get("freeable_memory"),
-            "rds_read_latency": rds.get("read_latency"),
-            "rds_write_latency": rds.get("write_latency"),
-        })
+        rows.append(
+            {
+                "service": "rds",
+                "error_rate": 0.0,
+                "rds_cpu": rds.get("cpu"),
+                "rds_connections": rds.get("conn"),
+                "rds_freeable_memory": rds.get("freeable_memory"),
+                "rds_read_latency": rds.get("read_latency"),
+                "rds_write_latency": rds.get("write_latency"),
+            }
+        )
 
     return rows
 
@@ -588,10 +660,23 @@ def _opensearch_health_check(settings: Settings) -> dict[str, Any]:
             ssl_context.verify_mode = ssl.CERT_NONE
 
     try:
-        with urlopen(request, timeout=settings.opensearch_timeout_seconds, context=ssl_context) as response:
-            return {"configured": True, "ok": True, "url": url, "http_status": getattr(response, "status", 200)}
+        with urlopen(
+            request, timeout=settings.opensearch_timeout_seconds, context=ssl_context
+        ) as response:
+            return {
+                "configured": True,
+                "ok": True,
+                "url": url,
+                "http_status": getattr(response, "status", 200),
+            }
     except HTTPError as exc:
-        return {"configured": True, "ok": False, "url": url, "http_status": int(exc.code), "error": f"HTTP {exc.code}"}
+        return {
+            "configured": True,
+            "ok": False,
+            "url": url,
+            "http_status": int(exc.code),
+            "error": f"HTTP {exc.code}",
+        }
     except URLError as exc:
         reason = getattr(exc, "reason", "connection error")
         return {"configured": True, "ok": False, "url": url, "error": str(reason)}
@@ -622,7 +707,13 @@ def _amp_health_check(settings: Settings) -> dict[str, Any]:
                 "response_status": status,
             }
     except HTTPError as exc:
-        return {"configured": True, "ok": False, "url": url, "http_status": int(exc.code), "error": f"HTTP {exc.code}"}
+        return {
+            "configured": True,
+            "ok": False,
+            "url": url,
+            "http_status": int(exc.code),
+            "error": f"HTTP {exc.code}",
+        }
     except URLError as exc:
         reason = getattr(exc, "reason", "connection error")
         return {"configured": True, "ok": False, "url": url, "error": str(reason)}
@@ -696,15 +787,17 @@ def list_logs(
             }
         )
     if env:
-        filters.append({
-            "bool": {
-                "should": [
-                    {"term": {"env.keyword": env}},
-                    {"term": {"resource.deployment.environment.keyword": env}},
-                ],
-                "minimum_should_match": 1,
+        filters.append(
+            {
+                "bool": {
+                    "should": [
+                        {"term": {"env.keyword": env}},
+                        {"term": {"resource.deployment.environment.keyword": env}},
+                    ],
+                    "minimum_should_match": 1,
+                }
             }
-        })
+        )
     if cluster:
         filters.append({"term": {"cluster.keyword": cluster}})
     if start_time or end_time:
@@ -733,7 +826,9 @@ def list_logs(
         "query": {"bool": {"filter": filters}},
     }
 
-    result = _opensearch_search(settings, settings.opensearch_logs_index if not log_source else f"logs-{log_source}", body)
+    result = _opensearch_search(
+        settings, settings.opensearch_logs_index if not log_source else f"logs-{log_source}", body
+    )
     if "__error__" in result:
         return {
             "logs": [],
@@ -754,7 +849,6 @@ def list_logs(
 
     logs: list[dict[str, Any]] = []
     for doc in docs:
-
         source = doc.get("_source", {}) if isinstance(doc, dict) else {}
         if not isinstance(source, dict):
             continue
@@ -788,7 +882,9 @@ def list_logs(
         )
         logs.append(
             {
-                "id": str(doc.get("_id") or _extract_nested(source, "id") or f"log-{len(logs)+1}"),
+                "id": str(
+                    doc.get("_id") or _extract_nested(source, "id") or f"log-{len(logs) + 1}"
+                ),
                 "timestamp": _extract_log_timestamp(source, doc),
                 "source": doc.get("_index", ""),  # 로그 소스 (logs-app, logs-host 등)
                 "service": str(service_val),
@@ -801,7 +897,9 @@ def list_logs(
                         "env",
                     )
                     or source.get("resource", {}).get("deployment.environment")
-                    or source.get("resource", {}).get("attributes", {}).get("deployment.environment")
+                    or source.get("resource", {})
+                    .get("attributes", {})
+                    .get("deployment.environment")
                 ),
                 "level": _safe_level(
                     _extract_nested(
@@ -863,14 +961,19 @@ def _amp_list_services(settings: Settings) -> list[str]:
     return services
 
 
-def list_metrics(service: str | None = None, start: int | None = None, end: int | None = None) -> list[dict] | dict[str, Any]:
+def list_metrics(
+    service: str | None = None, start: int | None = None, end: int | None = None
+) -> list[dict] | dict[str, Any]:
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     settings = get_settings()
     if not _is_real_mode(settings):
         return []
     if not settings.amp_endpoint:
-        return {"__error__": "DATA_SOURCE_MODE is real but AMP_ENDPOINT is not configured", "__status__": 503}
+        return {
+            "__error__": "DATA_SOURCE_MODE is real but AMP_ENDPOINT is not configured",
+            "__status__": 503,
+        }
 
     services = [service] if service else _amp_list_services(settings)
     if not services:
@@ -883,12 +986,12 @@ def list_metrics(service: str | None = None, start: int | None = None, end: int 
 
     metric_specs = [
         {"suffix": "request_rate", "unit": "req/s", "query": settings.amp_throughput_query},
-        {"suffix": "error_rate",   "unit": "%",     "query": settings.amp_error_rate_query},
-        {"suffix": "4xx_ratio",    "unit": "%",     "query": settings.amp_4xx_ratio_query},
-        {"suffix": "5xx_ratio",    "unit": "%",     "query": settings.amp_5xx_ratio_query},
-        {"suffix": "latency_p95",  "unit": "ms",    "query": settings.amp_latency_p95_query},
-        {"suffix": "cpu_usage",    "unit": "%",     "query": settings.amp_cpu_query},
-        {"suffix": "memory_usage", "unit": "%",     "query": settings.amp_memory_query},
+        {"suffix": "error_rate", "unit": "%", "query": settings.amp_error_rate_query},
+        {"suffix": "4xx_ratio", "unit": "%", "query": settings.amp_4xx_ratio_query},
+        {"suffix": "5xx_ratio", "unit": "%", "query": settings.amp_5xx_ratio_query},
+        {"suffix": "latency_p95", "unit": "ms", "query": settings.amp_latency_p95_query},
+        {"suffix": "cpu_usage", "unit": "%", "query": settings.amp_cpu_query},
+        {"suffix": "memory_usage", "unit": "%", "query": settings.amp_memory_query},
     ]
 
     tasks = [(svc, spec) for svc in services for spec in metric_specs]
@@ -911,7 +1014,10 @@ def list_metrics(service: str | None = None, start: int | None = None, end: int 
             results[(svc, spec["suffix"])] = result
 
     if first_error and not results:
-        return {"__error__": str(first_error.get("__error__")), "__status__": int(first_error.get("__status__", 502))}
+        return {
+            "__error__": str(first_error.get("__error__")),
+            "__status__": int(first_error.get("__status__", 502)),
+        }
 
     series_list: list[dict[str, Any]] = []
     for svc, spec in tasks:
@@ -926,13 +1032,15 @@ def list_metrics(service: str | None = None, start: int | None = None, end: int 
                     pass
         if not points:
             continue
-        series_list.append({
-            "id": f"{svc}_{spec['suffix']}",
-            "name": f"{svc}_{spec['suffix']}",
-            "unit": spec["unit"],
-            "service": svc,
-            "points": points,
-        })
+        series_list.append(
+            {
+                "id": f"{svc}_{spec['suffix']}",
+                "name": f"{svc}_{spec['suffix']}",
+                "unit": spec["unit"],
+                "service": svc,
+                "points": points,
+            }
+        )
 
     return series_list
 
@@ -1057,18 +1165,20 @@ def _group_spans_into_traces(spans: list[dict[str, Any]]) -> list[dict[str, Any]
             if http_code is None:
                 http_code = 200
 
-        traces.append({
-            "id": trace_id,
-            "service": root_span["service"],
-            "operation": root_span["operation"],
-            "startTime": trace_start,
-            "duration": trace_duration,
-            "status": trace_status,
-            "status_code": http_code,
-            "spans": sorted_spans,
-            "tags": root_span.get("tags", {}),
-            "env": _extract_trace_environment(sorted_spans),
-        })
+        traces.append(
+            {
+                "id": trace_id,
+                "service": root_span["service"],
+                "operation": root_span["operation"],
+                "startTime": trace_start,
+                "duration": trace_duration,
+                "status": trace_status,
+                "status_code": http_code,
+                "spans": sorted_spans,
+                "tags": root_span.get("tags", {}),
+                "env": _extract_trace_environment(sorted_spans),
+            }
+        )
 
     traces.sort(key=lambda t: t["startTime"], reverse=True)
     return traces
@@ -1177,7 +1287,7 @@ def list_traces(
         traces = [t for t in traces if t["status"] == status]
 
     total = len(traces)
-    traces = traces[offset:offset + limit]
+    traces = traces[offset : offset + limit]
 
     return {"traces": traces, "total": total}
 
@@ -1263,7 +1373,11 @@ def list_trace_filters(
 
 def get_trace_detail(trace_id: str) -> dict | None:
     settings = get_settings()
-    if not _is_real_mode(settings) or not settings.opensearch_url or not settings.opensearch_traces_index:
+    if (
+        not _is_real_mode(settings)
+        or not settings.opensearch_url
+        or not settings.opensearch_traces_index
+    ):
         return None
 
     body: dict[str, Any] = {

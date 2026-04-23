@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+
 from ..services.observability_service import list_trace_filters
 
 router = APIRouter()

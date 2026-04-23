@@ -1,11 +1,13 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from fastapi import APIRouter, HTTPException
+
 from ..core.config import get_settings
-from ..services.observability_service import _is_real_mode, _amp_query_range
+from ..services.observability_service import _amp_query_range, _is_real_mode
 
 router = APIRouter()
+
 
 @router.get("/jvm")
 async def get_jvm_metrics(
@@ -108,13 +110,15 @@ async def get_jvm_metrics(
 
             metric_labels = row.get("metric", {}) if isinstance(row.get("metric", {}), dict) else {}
             svc = _extract_service(metric_labels)
-            series_list.append({
-                "id": f"{svc}_{spec['suffix']}",
-                "name": f"{svc}_{spec['suffix']}",
-                "unit": spec["unit"],
-                "service": svc,
-                "points": points,
-            })
+            series_list.append(
+                {
+                    "id": f"{svc}_{spec['suffix']}",
+                    "name": f"{svc}_{spec['suffix']}",
+                    "unit": spec["unit"],
+                    "service": svc,
+                    "points": points,
+                }
+            )
 
     if limit is not None and isinstance(series_list, list):
         return series_list[:limit]

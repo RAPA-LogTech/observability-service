@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Query
+
 from ..services.streaming_service import ensure_stream_started, get_stream_backlog
 
 router = APIRouter()
+
 
 @router.get("/backlog")
 async def get_logs_backlog(

@@ -1,9 +1,9 @@
 from fastapi import APIRouter
 
-from .query import router as query_router
-from .stream import router as stream_router
 from .backlog import router as backlog_router
 from .filters import router as filters_router
+from .query import router as query_router
+from .stream import router as stream_router
 
 router = APIRouter(prefix="/v1/logs")
 

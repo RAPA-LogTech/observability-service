@@ -1,8 +1,10 @@
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
-from ..services.observability_service import _opensearch_search, get_settings, _safe_level
+
+from ..services.observability_service import _opensearch_search, _safe_level, get_settings
 
 router = APIRouter()
+
 
 @router.get("/filters")
 async def get_log_filters() -> dict:
@@ -15,7 +17,11 @@ async def get_log_filters() -> dict:
         "levels_level": {"terms": {"field": "level.keyword", "size": 10}},
         "hosts": {"terms": {"field": "resource.host.name.keyword", "size": 100}},
     }
-    app_result = _opensearch_search(settings, getattr(settings, "opensearch_app_logs_index", "logs-app"), {"size": 0, "aggs": app_aggs})
+    app_result = _opensearch_search(
+        settings,
+        getattr(settings, "opensearch_app_logs_index", "logs-app"),
+        {"size": 0, "aggs": app_aggs},
+    )
     host_aggs = {
         "envs": {"terms": {"field": "resource.deployment.environment.keyword", "size": 20}},
         "levels_severityText": {"terms": {"field": "severityText.keyword", "size": 10}},
@@ -23,7 +29,11 @@ async def get_log_filters() -> dict:
         "levels_level": {"terms": {"field": "level.keyword", "size": 10}},
         "hosts": {"terms": {"field": "resource.host.name.keyword", "size": 100}},
     }
-    host_result = _opensearch_search(settings, getattr(settings, "opensearch_host_logs_index", "logs-host"), {"size": 0, "aggs": host_aggs})
+    host_result = _opensearch_search(
+        settings,
+        getattr(settings, "opensearch_host_logs_index", "logs-host"),
+        {"size": 0, "aggs": host_aggs},
+    )
 
     def extract_buckets(agg: dict) -> list[str]:
         return [b["key"] for b in agg.get("buckets", []) if b.get("key")]

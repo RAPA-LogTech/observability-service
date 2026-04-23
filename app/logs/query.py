@@ -1,9 +1,11 @@
 import json
 
 from fastapi import APIRouter, Query, Response
+
 from ..services.observability_service import list_logs
 
 router = APIRouter()
+
 
 @router.get("/")
 def get_logs(

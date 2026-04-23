@@ -1,10 +1,10 @@
-from datetime import datetime, timedelta, timezone
+import time
+from datetime import datetime, timezone
 
 import boto3
 from fastapi import APIRouter, Query
 
 from ..services.observability_service import get_settings
-import time
 
 router = APIRouter()
 
@@ -83,13 +83,15 @@ def query_rds_metrics(
         if not points:
             continue
 
-        results.append({
-            "id": f"{series_name}_rds",
-            "name": series_name,
-            "unit": unit,
-            "service": "rds",
-            "instance": settings.rds_instance_identifier,
-            "points": points,
-        })
+        results.append(
+            {
+                "id": f"{series_name}_rds",
+                "name": series_name,
+                "unit": unit,
+                "service": "rds",
+                "instance": settings.rds_instance_identifier,
+                "points": points,
+            }
+        )
 
     return results

@@ -85,7 +85,9 @@ def _opensearch_overview(settings) -> tuple[dict, list[dict]]:
             "by_service": {
                 "terms": {"field": "resource.service.name.keyword", "size": 50},
                 "aggs": {
-                    "envs": {"terms": {"field": "resource.deployment.environment.keyword", "size": 10}},
+                    "envs": {
+                        "terms": {"field": "resource.deployment.environment.keyword", "size": 10}
+                    },
                     "errors": {
                         "filter": {
                             "bool": {
@@ -118,13 +120,15 @@ def _opensearch_overview(settings) -> tuple[dict, list[dict]]:
         rate = err_count / doc_count if doc_count > 0 else 0.0
         total_logs += doc_count
         total_errors += err_count
-        services.append({
-            "service": b["key"],
-            "envs": sorted(envs),
-            "error_rate": round(rate, 4),
-            "latency_p95": 0,
-            "throughput": round(doc_count / 300, 2),
-        })
+        services.append(
+            {
+                "service": b["key"],
+                "envs": sorted(envs),
+                "error_rate": round(rate, 4),
+                "latency_p95": 0,
+                "throughput": round(doc_count / 300, 2),
+            }
+        )
 
     services.sort(key=lambda s: s["service"])
     n = len(services)

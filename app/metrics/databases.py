@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Query
-from ..services.observability_service import get_settings, _amp_query_range
 import time
+
+from fastapi import APIRouter, Query
+
+from ..services.observability_service import _amp_query_range, get_settings
 
 router = APIRouter()
 
@@ -33,6 +35,7 @@ def _extract_instance(metric_labels: dict) -> str | None:
             return str(candidate)
     return None
 
+
 @router.get("/databases")
 def query_db_metrics(
     start: int = Query(None, description="시작 타임스탬프(ms)", alias="start"),
@@ -56,17 +59,30 @@ def query_db_metrics(
 
     queries = [
         {"name": "db_client_connections_usage", "query": "db_client_connections_usage"},
-        {"name": "db_client_connections_pending_requests", "query": "db_client_connections_pending_requests"},
+        {
+            "name": "db_client_connections_pending_requests",
+            "query": "db_client_connections_pending_requests",
+        },
         {"name": "db_client_connections_max", "query": "db_client_connections_max"},
-        {"name": "db_connection_use", "query": "histogram_quantile(0.95, sum(rate(db_connection_use_bucket[5m])) by (le,service))"},
-        {"name": "db_connection_wait", "query": "histogram_quantile(0.95, sum(rate(db_connection_wait_bucket[5m])) by (le,service))"},
+        {
+            "name": "db_connection_use",
+            "query": "histogram_quantile(0.95, sum(rate(db_connection_use_bucket[5m])) by (le,service))",
+        },
+        {
+            "name": "db_connection_wait",
+            "query": "histogram_quantile(0.95, sum(rate(db_connection_wait_bucket[5m])) by (le,service))",
+        },
     ]
 
     results = []
     for q in queries:
-        prom_result = _amp_query_range(settings, q["query"], int(start/1000), int(end/1000), step)
+        prom_result = _amp_query_range(
+            settings, q["query"], int(start / 1000), int(end / 1000), step
+        )
         for idx, series in enumerate(prom_result):
-            metric_labels = series.get("metric", {}) if isinstance(series.get("metric", {}), dict) else {}
+            metric_labels = (
+                series.get("metric", {}) if isinstance(series.get("metric", {}), dict) else {}
+            )
             service = _extract_service(metric_labels)
             instance = _extract_instance(metric_labels)
             scope = service or instance or f"all_{idx}"
@@ -77,7 +93,8 @@ def query_db_metrics(
                 "service": service,
                 "instance": instance,
                 "points": [
-                    {"ts": int(float(p[0]) * 1000), "value": float(p[1])} for p in series.get("values", [])
+                    {"ts": int(float(p[0]) * 1000), "value": float(p[1])}
+                    for p in series.get("values", [])
                 ],
             }
             results.append(metric)

@@ -1,5 +1,9 @@
+import asyncio
+import time
+
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
+
 from ..services.streaming_service import (
     encode_sse_event,
     ensure_stream_started,
@@ -7,10 +11,9 @@ from ..services.streaming_service import (
     subscribe_stream,
     unsubscribe_stream,
 )
-import asyncio
-import time
 
 router = APIRouter()
+
 
 @router.get("/stream")
 async def stream_traces(request: Request) -> StreamingResponse:

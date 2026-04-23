@@ -1,7 +1,9 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
+
 from ..services.observability_service import list_metrics
 
 router = APIRouter()
+
 
 @router.get("/")
 def get_metrics(
